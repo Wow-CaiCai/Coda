@@ -5,6 +5,10 @@ enum HomeLayout {
     static let sectionSpacing = Theme.Spacing.discoverySection
     static let headerSpacing = Theme.Spacing.component
     static let headerHeight: CGFloat = 44
+    /// Every home cover shelf matches the radar cards in the first row, on all platforms.
+    static let coverSize: CGFloat = Theme.Layout.cardSize
+    /// Covers share the radar cards' continuous corner radius.
+    static let coverCornerRadius: CGFloat = Theme.Radius.cover
 }
 
 @MainActor
@@ -236,7 +240,6 @@ private struct StandardHomeView: View {
     @StateObject private var suggestions = HomeSongSuggestionsModel.shared
     @StateObject private var discovery = HomeDiscoveryModel.shared
     @ObservedObject private var dailySongs = SidebarResources.daily
-    @State private var shelfWidth: CGFloat = 0
     @State private var likedCoverTracks: [Track] = []
     @State private var likedCoverAuthentication: String?
     @State private var likedCoverRequest = UUID()
@@ -278,6 +281,7 @@ private struct StandardHomeView: View {
         ScenePreservingScrollView {
             homeBody
         }
+        .loadingCrossfade(model.loadingModules)
         .background(Theme.LikedMusic.background(colorScheme))
         .appRootNavigationTitle(String(localized: "推荐"))
         .task(id: likedCoverContext) {
@@ -354,13 +358,12 @@ private struct StandardHomeView: View {
                 HStack(alignment: .top, spacing: Theme.Spacing.component) {
                     ForEach(0..<6, id: \.self) { _ in
                         VStack(alignment: .leading, spacing: Theme.Spacing.small) {
-                            SkeletonView(cornerRadius: circularCover ? 1000 : Theme.Radius.standard)
+                            SkeletonView(cornerRadius: circularCover ? 1000 : HomeLayout.coverCornerRadius)
                                 .aspectRatio(1, contentMode: .fit)
                             SkeletonView(cornerRadius: 4).frame(height: 14)
                             SkeletonView(cornerRadius: 4).frame(width: 100, height: 11)
                         }
-                        .frame(width: Theme.Layout.fittedShelfCardSize(
-                            availableWidth: shelfWidth, leadingInset: phoneLayout.contentInset))
+                        .frame(width: HomeLayout.coverSize)
                     }
                 }
                 .padding(.horizontal, phoneLayout.contentInset)
@@ -388,11 +391,11 @@ private struct StandardHomeView: View {
 
             if account.provider.supports(.personalizedSuggestions) { HomeSongRecommendationLists(model: suggestions) }
 
-            HomeDiscoverySections(model: discovery, shelfWidth: shelfWidth, songRows: true)
+            HomeDiscoverySections(model: discovery, songRows: true)
 
             HomeToplistsSection(model: model, contentInset: phoneLayout.contentInset)
 
-            HomeDiscoverySections(model: discovery, shelfWidth: shelfWidth, songRows: false)
+            HomeDiscoverySections(model: discovery, songRows: false)
 
             if model.loadingModules.contains(.albums), account.provider.supports(.newAlbums) {
                 shelfSkeleton("新碟上架")
@@ -405,10 +408,8 @@ private struct StandardHomeView: View {
                                    loading: albumPages.loading { limit, offset in
                                        let items = try await NeteaseAPI.newAlbums(limit: limit, offset: offset)
                                        return .init(items: items, hasMore: items.count == limit)
-                                   }, cardWidth: Theme.Layout.fittedShelfCardSize(
-                                       availableWidth: shelfWidth, leadingInset: phoneLayout.contentInset)) { album in
-                        albumCard(album, size: Theme.Layout.fittedShelfCardSize(
-                            availableWidth: shelfWidth, leadingInset: phoneLayout.contentInset))
+                                   }, cardWidth: HomeLayout.coverSize) { album in
+                        albumCard(album, size: HomeLayout.coverSize)
                     }
                 }
             }
@@ -435,9 +436,6 @@ private struct StandardHomeView: View {
         .pageHeaderTopPadding(phoneLayout.contentInset - 8)
         .padding(.bottom, phoneLayout.contentInset - 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-            if width > 0 { shelfWidth = width }
-        }
     }
 
     // MARK: - Daily song rows
@@ -485,14 +483,15 @@ private struct StandardHomeView: View {
             if dailySongs.value.isEmpty, model.loadingModules.contains(.features) {
                 MusicLibraryLoadingView(rowsPerColumn: 3, scrollsHorizontally: true,
                                         showsHorizontalPanel: false,
-                                        horizontalInset: Theme.Layout.trackListInset)
+                                        horizontalInset: Theme.Layout.trackListInset,
+                                        fixedColumnWidth: Theme.Layout.homeSongColumnWidth)
             } else if dailySongs.value.isEmpty {
                 Text("暂无每日推荐")
                     .font(Theme.Typography.secondary).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 120)
             } else {
                 MusicTrackPanel(tracks: dailySongs.value, scrollsHorizontally: true,
-                                horizontalRowLimit: 3, horizontalInset: Theme.Layout.trackListInset,
+                                horizontalRowLimit: 3, horizontalInset: Theme.Layout.trackListInset, fixedColumnWidth: Theme.Layout.homeSongColumnWidth,
                                 showsHorizontalPanel: false, source: .daily, context: .daily,
                                 showsRowSeparators: false)
             }
@@ -616,7 +615,8 @@ private struct StandardHomeView: View {
                 coverURL: album.picUrl?.resizedImageURL(384),
                 title: album.name,
                 subtitle: album.artistName,
-                size: size
+                size: size,
+                cornerRadius: HomeLayout.coverCornerRadius
             ) {
                 Task {
                     if let detail = try? await NeteaseAPI.album(id: album.id) {
@@ -626,7 +626,7 @@ private struct StandardHomeView: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.interactiveCard)
     }
 
     private func artistCard(_ artist: ArtistSummary) -> some View {
@@ -643,7 +643,7 @@ private struct StandardHomeView: View {
             }
             .frame(width: 140)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.interactiveCard)
     }
 
     private func playPlaylist(_ id: Int) {
@@ -663,7 +663,7 @@ private struct StandardHomeView: View {
 // MARK: - Feature card
 
 struct FeatureCard: View {
-    static let width: CGFloat = 178
+    static let width: CGFloat = Theme.Layout.cardSize
     // Loaded cards, skeletons and both shelf rows share the same square size.
     static let height: CGFloat = width
 
@@ -723,9 +723,9 @@ struct FeatureCard: View {
             .padding(Theme.Spacing.phonePage)
         }
         .frame(width: Self.width, height: Self.height)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: HomeLayout.coverCornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: HomeLayout.coverCornerRadius, style: .continuous)
                 .strokeBorder(usesLightForeground ? Color.clear : Color.primary.opacity(0.08), lineWidth: 0.5)
         )
         .contentShape(Rectangle())
@@ -767,6 +767,7 @@ struct CoverCardBody: View {
     var subtitle: String?
     var playCount: Int = 0
     var size: CGFloat = Theme.Layout.cardSize
+    var cornerRadius: CGFloat = Theme.Radius.cover
     var reservesTitleSpace = false
     var onPlay: (() -> Void)?
 
@@ -776,9 +777,9 @@ struct CoverCardBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.small) {
             artwork
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.standard, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.standard, style: .continuous)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .strokeBorder(.primary.opacity(0.08), lineWidth: 0.5)
                 )
                 .overlay(alignment: .topTrailing) {
@@ -812,7 +813,7 @@ struct CoverCardBody: View {
         .frame(maxWidth: flexibleWidth ? .infinity : size, alignment: .leading)
         .contentShape(Rectangle())
         #if os(macOS)
-        .onHover { isHovering = $0 }
+        .scrollAwareHover { isHovering = $0 }
         #endif
     }
 
@@ -839,10 +840,19 @@ struct HomeToplistsSection: View {
     @Environment(\.openDestination) private var openDestination
     // Read, not observed: playback updates must not rebuild every chart row.
     private let player = PlayerService.shared
+    private var phoneLayout = PhonePageLayout()
 
-    @ScaledMetric(relativeTo: .body) private var chartRowHeight: CGFloat = 64
+    init(model: HomeViewModel, contentInset: CGFloat) {
+        self.model = model
+        self.contentInset = contentInset
+    }
 
-    private var toplistHeight: CGFloat { 64 + 8 + 0.5 + 6 + chartRowHeight * 10 }
+    @ScaledMetric(relativeTo: .body) private var chartRowHeight: CGFloat = Theme.Layout.trackRowHeight
+
+    /// Chart header row, its divider block, then ten song rows 1pt apart like the song shelves.
+    private var toplistHeight: CGFloat {
+        chartRowHeight + HomeToplistPreview.dividerBlockHeight + chartRowHeight * 10 + 9
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: HomeLayout.headerSpacing) {
@@ -862,13 +872,19 @@ struct HomeToplistsSection: View {
             if model.loadingModules.contains(.toplists) {
                 MusicLibraryLoadingView(rowsPerColumn: 10, scrollsHorizontally: true,
                                         showsHorizontalPanel: false,
-                                        horizontalInset: Theme.Layout.trackListInset)
+                                        horizontalInset: Theme.Layout.trackListInset,
+                                        fixedColumnWidth: Theme.Layout.homeSongColumnWidth)
             } else {
                 GeometryReader { geometry in
-                    let width = max(360, (geometry.size.width - 2 * contentInset - 32) / 3)
+                    // Same column geometry as the home song shelves.
+                    let available = geometry.size.width - 2 * Theme.Layout.trackListInset
+                    let peek: CGFloat = phoneLayout.isEnabled && model.toplists.count > 1 ? 20 : 0
+                    let width = max(1, min(Theme.Layout.homeSongColumnWidth, available - peek))
                     HorizontalPagingScrollView(itemCount: model.toplists.count,
-                                               resetKey: model.toplists.first?.id, pageSize: 3) { visibleCount in
-                        LazyHStack(alignment: .top, spacing: Theme.Spacing.component) {
+                                               resetKey: model.toplists.first?.id, pageSize: 3,
+                                               horizontalInset: Theme.Layout.trackListInset,
+                                               spacing: Theme.Spacing.group) { visibleCount in
+                        LazyHStack(alignment: .top, spacing: Theme.Spacing.group) {
                             ForEach(model.toplists.prefix(visibleCount)) { chart in
                                 HomeToplistPreview(
                                     chart: chart,
@@ -921,21 +937,30 @@ private struct HomeToplistPreview: View, Equatable {
     let onOpen: () -> Void
     let onPlay: (Track, [Track]) -> Void
 
+    /// Divider plus the space above and below it.
+    static let dividerBlockHeight: CGFloat = Theme.Spacing.small * 2 + 0.5
+
+    @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = Theme.Layout.trackRowHeight
+    @ScaledMetric(relativeTo: .body) private var artworkSize: CGFloat = Theme.Layout.trackArtworkSize
+
+    private var contentMinHeight: CGFloat { reservedHeight - rowHeight - Self.dividerBlockHeight }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // The chart header is laid out exactly like a song row.
             Button(action: onOpen) {
                 HStack(spacing: Theme.Spacing.control) {
                     CachedAsyncImage(url: chart.coverImgUrl?.resizedImageURL(160), animated: false)
-                        .frame(width: 48, height: 48)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .frame(width: artworkSize, height: artworkSize)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous))
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
                         Text(chart.name)
-                            .font(Theme.Typography.cardTitle.weight(.semibold))
+                            .font(Theme.Typography.trackTitle)
                             .lineLimit(1)
                         if let frequency = chart.updateFrequency, !frequency.isEmpty {
                             Text(frequency)
-                                .font(Theme.Typography.caption)
+                                .font(Theme.Typography.secondary)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -943,11 +968,10 @@ private struct HomeToplistPreview: View, Equatable {
                     Spacer(minLength: 8)
                     DisclosureChevron()
                         .frame(width: TrackRow.chartRankColumnWidth)
-                        .padding(.trailing, Theme.Spacing.control)
                 }
-                .padding(.leading, Theme.Spacing.control)
+                .padding(.horizontal, Theme.Layout.trackRowHorizontalInset)
                 .foregroundStyle(.primary)
-                .frame(minHeight: 64)
+                .frame(height: rowHeight)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -955,15 +979,13 @@ private struct HomeToplistPreview: View, Equatable {
             Rectangle()
                 .fill(Color.primary.opacity(0.08))
                 .frame(height: 0.5)
-                .padding(.leading, Theme.Spacing.phonePage)
-                .padding(.trailing, Theme.Spacing.control)
+                .padding(.horizontal, Theme.Layout.trackRowHorizontalInset)
                 .padding(.bottom, Theme.Spacing.small)
             if let tracks, !tracks.isEmpty {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 1) {
                     ForEach(Array(tracks.prefix(10).enumerated()), id: \.element.id) { index, track in
                         TrackRow(track: track, index: index + 1, style: .likedMusic,
-                                 showsDuration: false,
-                                 showsLikeButton: true,
+                                 showsLikeButton: false,
                                  showsAlbumSubtitle: true,
                                  chartRank: index + 1, previousChartRank: previousRanks[track.id],
                                  chartGrowthRatio: growthRatios[track.id]) {
@@ -977,14 +999,14 @@ private struct HomeToplistPreview: View, Equatable {
                     Text("榜单歌曲加载失败").foregroundStyle(.secondary)
                     Button("重试", action: onRetry).frame(minHeight: 44)
                 }
-                .frame(maxWidth: .infinity, minHeight: reservedHeight - 78.5)
+                .frame(maxWidth: .infinity, minHeight: contentMinHeight)
             } else if tracks != nil {
                 Text("暂无榜单歌曲")
                     .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: reservedHeight - 78.5)
+                    .frame(maxWidth: .infinity, minHeight: contentMinHeight)
             } else {
                 ProgressView("正在加载榜单")
-                    .frame(maxWidth: .infinity, minHeight: reservedHeight - 78.5)
+                    .frame(maxWidth: .infinity, minHeight: contentMinHeight)
             }
         }
         .frame(maxWidth: .infinity, minHeight: reservedHeight, alignment: .topLeading)

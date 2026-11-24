@@ -543,7 +543,7 @@ public final class CarPlayConnector: NSObject {
     }
 
     /// Refreshes the Curated tab's sections: high-quality + hot + toplists + official + Chinese playlists.
-    /// Mirrors the category chips in App ExploreView (All / Featured / Toplists / Official / Chinese).
+    /// Mirrors the category explore categories in the App (All / Featured / Toplists / Official / Chinese).
     private func updateCuratedTab() {
         guard let curatedTab else { return }
         var sections = CarPlayTemplateFactory.playlistSections(
@@ -579,7 +579,7 @@ public final class CarPlayConnector: NSObject {
             }
             sections.append(CPListSection(items: toplistItems, header: "排行榜", sectionIndexTitle: nil))
         }
-        // Official playlists — backs the "Official" chip in App ExploreView.
+        // Official playlists — backs the "Official" category in the App explore shelves.
         if !content.officialPlaylists.isEmpty {
             sections.append(contentsOf: CarPlayTemplateFactory.playlistSections(
                 content.officialPlaylists,
@@ -587,7 +587,7 @@ public final class CarPlayConnector: NSObject {
                 header: "官方歌单"
             ))
         }
-        // Chinese playlists — backs the "Chinese" chip in App ExploreView.
+        // Chinese playlists — backs the "Chinese" category in the App explore shelves.
         if !content.chinesePlaylists.isEmpty {
             sections.append(contentsOf: CarPlayTemplateFactory.playlistSections(
                 content.chinesePlaylists,

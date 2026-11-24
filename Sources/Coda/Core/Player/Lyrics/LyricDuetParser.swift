@@ -244,7 +244,8 @@ enum LyricDuetParser {
 
         let identifier = normalizedRoleIdentifier(displayName)
         guard !identifier.isEmpty,
-              !metadataRoleIdentifiers.contains(identifier) else {
+              !metadataRoleIdentifiers.contains(identifier),
+              !LyricsParser.isCreditRole(displayName) else {
             return nil
         }
         return RoleLabel(

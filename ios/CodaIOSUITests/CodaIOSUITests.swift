@@ -16,89 +16,11 @@ final class CodaIOSUITests: XCTestCase {
     }
 
     @MainActor
-    func testExploreCategoryTouchRegression() throws {
-        try requireLegacyIPad()
-        let app = XCUIApplication()
-        let originalOrientation = XCUIDevice.shared.orientation
-        defer {
-            XCUIDevice.shared.orientation = originalOrientation
-            app.terminate()
-        }
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
-        app.launch()
-        let explore = app.buttons["精选"].firstMatch
-        XCTAssertTrue(explore.waitForExistence(timeout: 20))
-        explore.tap()
-        let recommended = app.buttons["explore.category.推荐歌单"].firstMatch
-        XCTAssertTrue(recommended.waitForExistence(timeout: 10))
-        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
-            XCUIDevice.shared.orientation = orientation
-            for offset in [CGVector(dx: 0.5, dy: 0.5), CGVector(dx: 0.1, dy: 0.5),
-                           CGVector(dx: 0.9, dy: 0.5), CGVector(dx: 0.5, dy: 0.15),
-                           CGVector(dx: 0.5, dy: 0.85)] {
-                for name in ["推荐歌单", "全部"] {
-                    let button = app.buttons["explore.category.\(name)"].firstMatch
-                    print("CATEGORY_TOUCH name=\(name) frame=\(button.frame) offset=\(offset)")
-                    button.coordinate(withNormalizedOffset: offset).tap()
-                    let selected = XCTNSPredicateExpectation(
-                        predicate: NSPredicate(format: "selected == true"), object: button)
-                    let result = XCTWaiter.wait(for: [selected], timeout: 5)
-                    if result != .completed {
-                        print("CATEGORY_FAILURE_TREE \(app.debugDescription)")
-                        attachScreen("Category touch failed")
-                    }
-                    XCTAssertEqual(result, .completed, "\(name) must respond to a single tap at \(offset)")
-                }
-            }
-            attachScreen("Category touch verified \(orientation.rawValue)")
-        }
-    }
-
-    @MainActor
-    func testExploreCategoryScrollingAndDestinations() throws {
-        try requireLegacyIPad()
-        let app = XCUIApplication()
-        let originalOrientation = XCUIDevice.shared.orientation
-        defer {
-            XCUIDevice.shared.orientation = originalOrientation
-            app.terminate()
-        }
-        XCUIDevice.shared.orientation = .landscapeLeft
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
-        app.launch()
-        let explore = app.buttons["精选"].firstMatch
-        XCTAssertTrue(explore.waitForExistence(timeout: 20))
-        explore.tap()
-        let row = app.scrollViews["exploreCategories"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 10))
-        func select(_ name: String) {
-            let button = app.buttons["explore.category.\(name)"].firstMatch
-            button.tap()
-            let selected = XCTNSPredicateExpectation(
-                predicate: NSPredicate(format: "selected == true"), object: button)
-            XCTAssertEqual(XCTWaiter.wait(for: [selected], timeout: 5), .completed)
-        }
-        for name in ["精品歌单", "排行榜", "全部"] { select(name) }
-        let last = app.buttons["explore.category.夜晚"].firstMatch
-        for _ in 0..<8 {
-            if last.frame.maxX <= row.frame.maxX && last.frame.minX >= row.frame.minX { break }
-            row.swipeLeft()
-        }
-        select("夜晚")
-        let first = app.buttons["explore.category.全部"].firstMatch
-        for _ in 0..<8 {
-            if first.frame.minX >= row.frame.minX { break }
-            row.swipeRight()
-        }
-        select("全部")
-        attachScreen("Category selection after horizontal scrolling")
-    }
-
-    @MainActor
-    func testLegacyIPadPlayerSpacingAndCardTransitions() throws {
+    func testLegacyIPadPlayerSpacingAndDragToDismiss() throws {
         try requireLegacyIPad()
         if #available(iOS 18.0, *) { throw XCTSkip("This regression targets iPadOS 16/17.") }
         let app = XCUIApplication()
+        // Also keeps the automatic update sheet from covering the player.
         app.launchEnvironment["CODA_PLAYER_TRANSITION_DIAGNOSTICS"] = "1"
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
         let originalOrientation = XCUIDevice.shared.orientation
@@ -110,27 +32,10 @@ final class CodaIOSUITests: XCTestCase {
         XCTAssertFalse(open.label.contains("未在播放"), "Keep the device's restored track for this regression.")
         let originalPlayer = open.frame
         let handle = app.descendants(matching: .any)["nowPlayingDismissIndicator"].firstMatch
-        let diagnostic = app.staticTexts["legacyPlayerTransitionDiagnostics"]
-
-        func assertMotion(phase: String, cancelled: Bool = false) throws {
-            XCTAssertTrue(diagnostic.waitForExistence(timeout: 5))
-            let data = try XCTUnwrap(diagnostic.label.data(using: .utf8))
-            let values = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-            print("PLAYER_TRANSITION_FRAME_SAMPLES \(diagnostic.label)")
-            XCTAssertEqual(values["phase"] as? String, phase)
-            XCTAssertEqual(values["cancelled"] as? Bool, cancelled)
-            if values["reducedMotion"] as? Bool == false {
-                XCTAssertGreaterThan(values["intermediate"] as? Int ?? 0, 1,
-                                     "The real presentation layer must pass through intermediate frames.")
-                XCTAssertLessThan(values["minimumScale"] as? Double ?? 1, 0.99,
-                                  "The underlying browsing card must actually shrink.")
-            }
-        }
 
         for cycle in 0..<2 {
             open.tap()
             XCTAssertTrue(handle.waitForExistence(timeout: 5))
-            try assertMotion(phase: "present")
             func frame(_ id: String) -> CGRect {
                 let element = app.descendants(matching: .any)[id].firstMatch
                 XCTAssertTrue(element.waitForExistence(timeout: 5), id)
@@ -150,8 +55,6 @@ final class CodaIOSUITests: XCTestCase {
                     start.press(forDuration: 0.1, thenDragTo: start.withOffset(CGVector(dx: 0, dy: 35)),
                                 withVelocity: .slow, thenHoldForDuration: 0.3)
                     XCTAssertTrue(handle.exists, "A short drag must keep the player open.")
-                    // Cancelled previews must not enter UIKit's dismissal lifecycle.
-                    try assertMotion(phase: "present")
                     let add = app.buttons["iPadAddToPlaylistButton"]
                     XCTAssertTrue(add.waitForExistence(timeout: 5))
                     add.tap()
@@ -167,7 +70,6 @@ final class CodaIOSUITests: XCTestCase {
             }
             handle.tap()
             XCTAssertTrue(open.waitForExistence(timeout: 5))
-            try assertMotion(phase: "dismiss")
             let restoredPlayer = open.frame
             XCTAssertEqual(originalPlayer.minY, restoredPlayer.minY, accuracy: 2)
             attachScreen("Legacy iPad browsing restored cycle \(cycle)")
@@ -312,7 +214,6 @@ final class CodaIOSUITests: XCTestCase {
             let header = elementFrame("musicLibraryHeader", in: snapshot)
                 ?? elementFrame("accountPageHeader", in: snapshot)
             let back = elementFrame("iPadDestinationBackRow", in: snapshot)
-            let categories = elementFrame("exploreCategories", in: snapshot)
             print("PAGE_LAYOUT \(name) sidebarTop=\(sidebarTop) dock=\(dock) header=\(String(describing: header)) back=\(String(describing: back))")
             if dock.height < 60 || !app.buttons["sidebarSettingsButton"].isHittable {
                 problems.append(name + ": persistent chrome is missing")
@@ -322,7 +223,7 @@ final class CodaIOSUITests: XCTestCase {
                     if abs(back.minY - sidebarTop) > 1 { problems.append(name + ": back row top shifted") }
                     if let header, header.minY < back.maxY - 1 { problems.append(name + ": header overlaps back row") }
                 } else { problems.append(name + ": back row is missing") }
-            } else if let first = header ?? categories {
+            } else if let first = header {
                 if abs(first.minY - sidebarTop) > 1 { problems.append(name + ": header top does not align") }
             }
             let field = app.textFields["likedSongsSearch"]
@@ -341,7 +242,7 @@ final class CodaIOSUITests: XCTestCase {
             }
         }
 
-        for title in ["精选", "账户", "已下载", "最近播放", "我的收藏", "音乐云盘"] {
+        for title in ["探索", "账户", "已下载", "最近播放", "我的收藏", "音乐云盘"] {
             let button = app.buttons[title].firstMatch
             guard button.exists && button.isHittable else {
                 problems.append(title + ": sidebar entry is unreachable")
@@ -565,7 +466,7 @@ final class CodaIOSUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["sidebarSettingsButton"].waitForExistence(timeout: 15))
 
-        for title in ["精选", "已下载", "搜索"] {
+        for title in ["探索", "已下载"] {
             app.buttons[title].firstMatch.tap()
             XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 10))
             for _ in 0..<2 {
@@ -594,8 +495,8 @@ final class CodaIOSUITests: XCTestCase {
                       "Returning to the app must also keep the pushed detail page.")
         app.navigationBars["存储空间"].buttons["设置"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5))
-        app.buttons["精选"].firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["精选"].waitForExistence(timeout: 5))
+        app.buttons["探索"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["探索"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -641,7 +542,7 @@ final class CodaIOSUITests: XCTestCase {
         let player = app.buttons["iPadOpenNowPlaying"]
         XCTAssertTrue(player.waitForExistence(timeout: 10))
         let initialPlayerFrame = player.frame
-        for title in ["精选", "推荐"] {
+        for title in ["探索", "推荐"] {
             app.buttons[title].firstMatch.tap()
             XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 10))
             let window = app.windows.firstMatch.frame
@@ -656,7 +557,7 @@ final class CodaIOSUITests: XCTestCase {
                 assertPersistentPlayer(player, initialFrame: initialPlayerFrame)
                 print("PLAYERDOCK \(title) \(index): \(app.otherElements["iPadPlayerDock"].frame)")
                 attachScreen("Player backdrop \(title) \(index)")
-                if title == "精选" {
+                if title == "探索" {
                     backdropSamples.append(try playerBackdropPixels(app: app, player: player))
                 }
             }
@@ -711,7 +612,7 @@ final class CodaIOSUITests: XCTestCase {
         XCUIDevice.shared.orientation = .landscapeLeft
         app.launch()
         XCTAssertTrue(app.buttons["sidebarSettingsButton"].waitForExistence(timeout: 15))
-        for title in ["推荐", "精选", "我的收藏"] {
+        for title in ["推荐", "探索", "我的收藏"] {
             app.buttons[title].firstMatch.tap()
             let bar = app.navigationBars[title]
             XCTAssertTrue(bar.waitForExistence(timeout: 10))
@@ -884,7 +785,7 @@ final class CodaIOSUITests: XCTestCase {
             app.launch()
             let settings = app.buttons["sidebarSettingsButton"]
             XCTAssertTrue(settings.waitForExistence(timeout: 15))
-            for title in ["精选", "已下载", "搜索", "推荐"] {
+            for title in ["探索", "已下载", "推荐"] {
                 app.buttons[title].firstMatch.tap()
                 XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 10))
             }

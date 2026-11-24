@@ -235,290 +235,567 @@ struct IPadSplitStyle: ViewModifier {
     }
 }
 
-/// A native sheet with a window-sized preferred content size. On iPad a form
-/// sheet honors that size instead of imposing pageSheet's readable-column width.
-/// UIKit still owns its margins, backdrop transform and interactive dismissal.
-private struct LegacyPlayerSheet<Content: View, Backdrop: View>: UIViewControllerRepresentable {
+/// Before iOS 18 the player is presented by UIKit rather than `fullScreenCover`.
+/// A full-screen cover takes the page underneath out of the window once it is
+/// up, so dragging the player down showed a black window, and the page was put
+/// back with a flash on dismissal. An over-full-screen presentation keeps the
+/// page in place underneath for the whole time the player is shown.
+///
+/// UIKit only mounts the player here (no system animation). Opening, closing
+/// and the handle drag all run through `CoverZoomMotion`, which grows the
+/// player out of the mini player and shrinks it back, like the iOS 18 zoom.
+private struct OverFullScreenCover<CoverContent: View>: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
-    let onDismiss: () -> Void
-    let content: Content
-    let backdrop: Backdrop
-    @Environment(\.self) private var environment
+    var onDismiss: () -> Void
+    @ViewBuilder var content: () -> CoverContent
 
-    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func updateUIViewController(_ controller: Controller, context: Context) {
-        controller.requestedPresentation = isPresented
-        controller.playerContent = AnyView(content.environment(\.self, environment))
-        controller.backdropContent = AnyView(backdrop.environment(\.self, environment))
-        controller.onDismiss = {
-            isPresented = false
-            onDismiss()
-        }
-        controller.synchronize()
+    func makeUIViewController(context: Context) -> UIViewController {
+        let anchor = UIViewController()
+        anchor.view.backgroundColor = .clear
+        anchor.view.isUserInteractionEnabled = false
+        anchor.view.isAccessibilityElement = false
+        return anchor
     }
 
-    final class Controller: UIViewController, UISheetPresentationControllerDelegate, UIViewControllerTransitioningDelegate, UIGestureRecognizerDelegate {
-        var requestedPresentation = false
-        var playerContent = AnyView(EmptyView())
-        var backdropContent = AnyView(EmptyView())
-        var onDismiss: (() -> Void)?
-        private var hosting: PlayerController?
-        private var backgroundHost: UIHostingController<AnyView>?
-        private var isDismissing = false
+    func updateUIViewController(_ anchor: UIViewController, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.anchor = anchor
+        coordinator.onDismiss = onDismiss
+        coordinator.wantsPresented = { isPresented }
+        let binding = $isPresented
+        coordinator.requestDismiss = { binding.wrappedValue = false }
+        coordinator.makeContent = { AnyView(content()) }
+        if let hosting = coordinator.hosting { hosting.rootView = AnyView(content()) }
+        coordinator.sync()
+    }
 
-        private var isDraggingPlayer = false
+    static func dismantleUIViewController(_ anchor: UIViewController, coordinator: Coordinator) {
+        coordinator.wantsPresented = { false }
+        coordinator.sync()
+    }
 
-        private var usesUnifiedBackground: Bool { true }
+    @MainActor
+    final class Coordinator {
+        weak var anchor: UIViewController?
+        var hosting: UIHostingController<AnyView>?
+        var onDismiss: () -> Void = {}
+        var wantsPresented: () -> Bool = { false }
+        var requestDismiss: () -> Void = {}
+        var makeContent: () -> AnyView = { AnyView(EmptyView()) }
+        private var motion: CoverZoomMotion?
+        private var isTransitioning = false
+        private var syncScheduled = false
 
-        private var playerRootContent: AnyView {
-            if usesUnifiedBackground {
-                // One full-screen host owns the artwork and foreground on old iPadOS.
-                // A form sheet adds a separate material surface at its top edge.
-                let insets = view.window?.safeAreaInsets ?? .zero
-                return AnyView(ZStack {
-                    backdropContent.ignoresSafeArea()
-                    // Read the stationary window, not the moving host.
-                    playerContent.padding(EdgeInsets(top: insets.top, leading: insets.left,
-                                                     bottom: insets.bottom, trailing: insets.right))
-                }
-                // Also covers iOS 16.0–16.3, before safeAreaRegions exists.
-                .ignoresSafeArea(.container))
+        /// Brings UIKit in line with the binding. Runs after the current
+        /// SwiftUI update and never starts a transition while one is running.
+        func sync() {
+            guard !syncScheduled else { return }
+            syncScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.syncScheduled = false
+                guard !self.isTransitioning else { return }
+                if self.wantsPresented() { self.present() } else { self.dismiss() }
             }
-            return playerContent
         }
 
+        private func present() {
+            guard hosting == nil, let anchor, let window = anchor.view.window,
+                  var top = window.rootViewController else { return }
+            while let next = top.presentedViewController, !next.isBeingDismissed { top = next }
+            let hosting = UIHostingController(rootView: makeContent())
+            hosting.modalPresentationStyle = .overFullScreen
+            hosting.modalPresentationCapturesStatusBarAppearance = true
+            hosting.view.backgroundColor = .clear
+            // Hidden until the motion takes over, so the first mounted frame
+            // never shows the player at full size.
+            hosting.view.alpha = 0
+            self.hosting = hosting
+            let motion = CoverZoomMotion(surface: hosting.view) { [weak self] in
+                self?.requestDismiss()
+            }
+            self.motion = motion
+            isTransitioning = true
+            top.present(hosting, animated: false) { [weak self] in
+                motion.open { [weak self] in
+                    self?.isTransitioning = false
+                    self?.sync()
+                }
+            }
+        }
+
+        private func dismiss() {
+            guard let hosting else { return }
+            guard let presenter = hosting.presentingViewController else {
+                finishDismissal()
+                return
+            }
+            isTransitioning = true
+            let unmount = { [weak self] in
+                presenter.dismiss(animated: false) { [weak self] in
+                    self?.finishDismissal()
+                }
+            }
+            if let motion { motion.close(completion: unmount) } else { unmount() }
+        }
+
+        private func finishDismissal() {
+            motion?.invalidate()
+            motion = nil
+            hosting = nil
+            isTransitioning = false
+            onDismiss()
+            sync()
+        }
+    }
+}
+
+/// Drives the pre-iOS 18 player surface: grows it out of the mini player,
+/// follows a downward drag from the handle, and shrinks it back into the mini
+/// player with the release velocity. The surface keeps its full-size layout
+/// throughout; only its transform and a rounded mask change, so the lyrics
+/// and the Metal background are never laid out at in-between sizes.
+///
+/// The drag is a UIKit recognizer measured in window coordinates: the surface
+/// itself moves under the finger, so its own coordinates cannot be used.
+@MainActor
+private final class CoverZoomMotion: NSObject, UIGestureRecognizerDelegate {
+    private weak var surface: UIView?
+    private let requestDismiss: () -> Void
+    private let mask = UIView()
+    private var animator: UIViewPropertyAnimator?
+    private var fadeAnimator: UIViewPropertyAnimator?
+    private var pan: UIPanGestureRecognizer?
+    /// Normalized release velocity for the next close, set by a dismissing drag.
+    private var pendingCloseVelocity: CGFloat = 0
+    private var dragStart: CGFloat = 0
+
+    private static let dragCornerRadius: CGFloat = 36
+    private static let dragMinimumScale: CGFloat = 0.86
+
+    private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
+
+    init(surface: UIView, requestDismiss: @escaping () -> Void) {
+        self.surface = surface
+        self.requestDismiss = requestDismiss
+        super.init()
+        mask.backgroundColor = .black
+        mask.layer.cornerCurve = .continuous
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.delegate = self
+        pan.maximumNumberOfTouches = 1
+        pan.isEnabled = false
+        surface.addGestureRecognizer(pan)
+        self.pan = pan
+    }
+
+    func invalidate() {
+        animator?.stopAnimation(true)
+        animator = nil
+        fadeAnimator?.stopAnimation(true)
+        fadeAnimator = nil
+        if let pan { pan.view?.removeGestureRecognizer(pan) }
+        pan = nil
+    }
+
+    // MARK: Open / close
+
+    func open(completion: @escaping () -> Void) {
+        guard let surface else { completion(); return }
+        surface.layoutIfNeeded()
+        // The player takes the handle drag and the close from its first frame:
+        // both interrupt the open, so the transition ends for the presenter now
+        // rather than when the spring finally settles.
+        defer {
+            pan?.isEnabled = true
+            completion()
+        }
+        if reduceMotion {
+            run(UIViewPropertyAnimator(duration: 0.2, curve: .easeInOut) { surface.alpha = 1 }) { position in
+                if position == .end { self.settleOpen() }
+            }
+            return
+        }
+        apply(collapsedGeometry(of: surface), to: surface)
+        surface.alpha = 0
+        // The player covers the mini player within the first few frames, so
+        // the grow reads as one surface rather than a fade over a scale.
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            surface.alpha = 1
+        }
+        // Response-based like the iOS 18 zoom: a soft start, no hard stop.
+        let animator = UIViewPropertyAnimator(
+            duration: 0,
+            timingParameters: Self.spring(response: 0.5, dampingFraction: 0.94)
+        )
+        animator.addAnimations { self.apply(.expanded(surface.bounds), to: surface) }
+        run(animator) { position in
+            if position == .end { self.settleOpen() }
+        }
+    }
+
+    func close(completion: @escaping () -> Void) {
+        guard let surface else { completion(); return }
+        pan?.isEnabled = false
+        let velocity = pendingCloseVelocity
+        pendingCloseVelocity = 0
+        animator?.stopAnimation(true)
+        animator = nil
+        if reduceMotion {
+            run(UIViewPropertyAnimator(duration: 0.2, curve: .easeInOut) { surface.alpha = 0 }) { _ in
+                completion()
+            }
+            return
+        }
+        if surface.mask == nil { installMask(on: surface, geometry: .expanded(surface.bounds)) }
+        let target = collapsedGeometry(of: surface)
+        let animator = UIViewPropertyAnimator(
+            duration: 0,
+            timingParameters: Self.spring(response: 0.42, dampingFraction: 1, velocity: velocity)
+        )
+        animator.addAnimations { self.apply(target, to: surface) }
+        guard target.fades else {
+            run(animator) { _ in completion() }
+            return
+        }
+        // Cross-fade into the mini player as the shrink lands. The fade, not
+        // the spring's long settling tail, ends the transition.
+        var finished = false
+        let finish = { [weak self] in
+            guard !finished else { return }
+            finished = true
+            self?.animator?.stopAnimation(true)
+            self?.animator = nil
+            self?.fadeAnimator = nil
+            completion()
+        }
+        let fade = UIViewPropertyAnimator(duration: 0.2, controlPoint1: CGPoint(x: 0.42, y: 0),
+                                          controlPoint2: CGPoint(x: 1, y: 1)) { surface.alpha = 0 }
+        fade.addCompletion { _ in finish() }
+        fadeAnimator = fade
+        run(animator) { _ in finish() }
+        fade.startAnimation(afterDelay: velocity > 1 ? 0.1 : 0.16)
+    }
+
+    /// A spring described like SwiftUI's `.spring(response:dampingFraction:)`.
+    /// UIKit derives the duration from it, so the motion never stops abruptly.
+    private static func spring(response: CGFloat, dampingFraction: CGFloat,
+                               velocity: CGFloat = 0) -> UISpringTimingParameters {
+        let stiffness = pow(2 * .pi / response, 2)
+        let damping = 4 * .pi * dampingFraction / response
+        return UISpringTimingParameters(mass: 1, stiffness: stiffness, damping: damping,
+                                        initialVelocity: CGVector(dx: velocity, dy: velocity))
+    }
+
+    private func settleOpen() {
+        guard let surface else { return }
+        surface.transform = .identity
+        surface.alpha = 1
+        surface.mask = nil
+        pan?.isEnabled = true
+    }
+
+    private func run(_ animator: UIViewPropertyAnimator,
+                     completion: @escaping (UIViewAnimatingPosition) -> Void) {
+        self.animator = animator
+        animator.addCompletion { [weak self] position in
+            if self?.animator === animator { self?.animator = nil }
+            completion(position)
+        }
+        animator.startAnimation()
+    }
+
+    // MARK: Geometry
+
+    private struct Geometry {
+        var transform: CGAffineTransform
+        /// Visible part of the surface, in its own (untransformed) bounds.
+        var maskFrame: CGRect
+        var cornerRadius: CGFloat
+        var fades = false
+
+        static func expanded(_ bounds: CGRect) -> Geometry {
+            Geometry(transform: .identity, maskFrame: bounds, cornerRadius: 0)
+        }
+    }
+
+    /// The surface scaled to the mini player's width, centered on it, and
+    /// masked to a strip of the mini player's height. Without a visible mini
+    /// player it slides off the bottom edge instead.
+    private func collapsedGeometry(of surface: UIView) -> Geometry {
+        let bounds = surface.bounds
+        guard let window = surface.window,
+              let zoomSource = NowPlayingZoomSource.source(within: window.bounds),
+              bounds.width > 0 else {
+            return Geometry(
+                transform: CGAffineTransform(translationX: 0, y: bounds.height),
+                maskFrame: bounds,
+                cornerRadius: 0
+            )
+        }
+        // The surface fills the window, so window and surface centers agree.
+        let source = zoomSource.frame
+        let center = CGPoint(x: window.bounds.midX, y: window.bounds.midY)
+        let scale = max(0.05, source.width / bounds.width)
+        let height = min(bounds.height, source.height / scale)
+        let radius = zoomSource.cornerRadius / scale
+        return Geometry(
+            transform: CGAffineTransform(translationX: source.midX - center.x, y: source.midY - center.y)
+                .scaledBy(x: scale, y: scale),
+            maskFrame: CGRect(x: 0, y: bounds.midY - height / 2, width: bounds.width, height: height),
+            cornerRadius: radius,
+            fades: true
+        )
+    }
+
+    private func dragGeometry(of surface: UIView, translation: CGFloat) -> Geometry {
+        let bounds = surface.bounds
+        let progress = min(1, max(0, translation) / max(1, bounds.height))
+        let scale = 1 - (1 - Self.dragMinimumScale) * progress
+        let radius = Self.dragCornerRadius * min(1, translation / 40)
+        return Geometry(
+            transform: CGAffineTransform(translationX: 0, y: max(0, translation))
+                .scaledBy(x: scale, y: scale),
+            maskFrame: bounds,
+            cornerRadius: max(0, radius) / scale
+        )
+    }
+
+    private func installMask(on surface: UIView, geometry: Geometry) {
+        mask.frame = geometry.maskFrame
+        mask.layer.cornerRadius = geometry.cornerRadius
+        surface.mask = mask
+    }
+
+    private func apply(_ geometry: Geometry, to surface: UIView) {
+        if surface.mask == nil { surface.mask = mask }
+        surface.transform = geometry.transform
+        mask.frame = geometry.maskFrame
+        mask.layer.cornerRadius = geometry.cornerRadius
+    }
+
+    // MARK: Drag
+
+    /// Only drags that start on the handle row and head downward close the
+    /// player; elsewhere drags stay with lyrics and controls.
+    func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = recognizer as? UIPanGestureRecognizer, let surface else { return false }
+        let velocity = pan.velocity(in: surface.window)
+        guard velocity.y > abs(velocity.x) else { return false }
+        let inset = surface.safeAreaInsets
+        let height = surface.bounds.height - inset.top - inset.bottom
+        let handleInset = UIDevice.current.userInterfaceIdiom == .pad
+            ? NowPlayingSplitGeometry.verticalInset(height: height)
+            : NowPlayingPresentationMetrics.indicatorTopSpacing
+        return pan.location(in: surface).y <= inset.top + handleInset + 44
+    }
+
+    func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        true
+    }
+
+    @objc private func handlePan(_ pan: UIPanGestureRecognizer) {
+        guard let surface else { return }
+        // Window coordinates do not move with the surface under the finger.
+        let translation = pan.translation(in: surface.window).y
+        switch pan.state {
+        case .began:
+            // May interrupt the open; the drag continues from full size.
+            animator?.stopAnimation(true)
+            animator = nil
+            surface.alpha = 1
+            dragStart = translation
+            if !reduceMotion { installMask(on: surface, geometry: .expanded(surface.bounds)) }
+        case .changed:
+            let distance = max(0, translation - dragStart)
+            if reduceMotion {
+                surface.alpha = 1 - min(1, distance / max(1, surface.bounds.height))
+            } else {
+                apply(dragGeometry(of: surface, translation: distance), to: surface)
+            }
+        case .ended, .cancelled, .failed:
+            let distance = max(0, translation - dragStart)
+            let velocity = pan.state == .ended ? pan.velocity(in: surface.window).y : 0
+            if pan.state == .ended, NowPlayingPresentationMetrics.shouldDismiss(
+                translation: distance,
+                predictedTranslation: distance + velocity * 0.25
+            ) {
+                pendingCloseVelocity = closeVelocity(of: surface, velocity: velocity)
+                requestDismiss()
+            } else {
+                springBack(surface, velocity: velocity)
+            }
+        default:
+            break
+        }
+    }
+
+    /// UIKit springs take velocity relative to the distance left to travel.
+    private func closeVelocity(of surface: UIView, velocity: CGFloat) -> CGFloat {
+        guard velocity > 0 else { return 0 }
+        let current = surface.transform.ty
+        let target = collapsedGeometry(of: surface).transform.ty
+        let remaining = target - current
+        guard abs(remaining) > 1 else { return 0 }
+        return min(8, max(0, velocity / remaining))
+    }
+
+    private func springBack(_ surface: UIView, velocity: CGFloat) {
+        if reduceMotion {
+            run(UIViewPropertyAnimator(duration: 0.2, curve: .easeOut) { surface.alpha = 1 }) { _ in
+                self.settleOpen()
+            }
+            return
+        }
+        let remaining = surface.transform.ty
+        let relative = remaining > 1 ? min(8, max(0, -velocity / remaining)) : 0
+        let animator = UIViewPropertyAnimator(
+            duration: 0,
+            timingParameters: Self.spring(response: 0.38, dampingFraction: 0.86, velocity: relative)
+        )
+        animator.addAnimations { self.apply(.expanded(surface.bounds), to: surface) }
+        run(animator) { position in
+            if position == .end { self.settleOpen() }
+        }
+    }
+}
+
+/// Before iOS 18 SwiftUI inherits UIKit's rotation animation and interpolates
+/// the whole player's layout from the old size to the new one, so lyrics and
+/// controls are drawn at in-between sizes and clipped while the screen turns.
+/// While this flag is set the cover drops that inherited animation: the player
+/// takes its final layout at once and turns with the window, like UIKit views.
+@MainActor
+enum CoverRotation {
+    static let didEnd = Notification.Name("CoverRotationDidEnd")
+    /// Counted, so a turn that starts before the previous one finishes keeps
+    /// the flag set until both have ended.
+    private static var active = 0
+    static var isActive: Bool { active > 0 }
+
+    static func begin() { active += 1 }
+
+    static func end() {
+        guard active > 0 else { return }
+        active -= 1
+        if active == 0 { NotificationCenter.default.post(name: didEnd, object: nil) }
+    }
+}
+
+/// Before iOS 18 the cover's window bounds turn through in-between sizes while
+/// its content already has the final layout, and the transparent cover would
+/// show the page underneath at the corners. This embedded controller receives
+/// the system's rotation callbacks and, for the length of the rotation only,
+/// puts a snapshot of the player's own background behind the cover, scaled to
+/// fill a square on the screen's long side. UIKit keeps it centered, so it
+/// covers both orientations without being resized or rendered a second time.
+private struct CoverRotationBackdrop: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func updateUIViewController(_ controller: Controller, context: Context) {}
+
+    final class Controller: UIViewController {
+        private var backdrop: UIView?
+        private var coverSurface: UIView? {
+            var root: UIViewController = self
+            while let parent = root.parent { root = parent }
+            return root.view
+        }
 
         override func loadView() {
             view = UIView()
             view.backgroundColor = .clear
             view.isUserInteractionEnabled = false
+            view.isAccessibilityElement = false
         }
 
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            synchronize()
+        override func viewWillTransition(to size: CGSize,
+                                         with coordinator: UIViewControllerTransitionCoordinator) {
+            // Set before super: UIKit resizes the cover right after this call.
+            CoverRotation.begin()
+            showBackdrop()
+            super.viewWillTransition(to: size, with: coordinator)
+            coordinator.animate(alongsideTransition: { [weak self] _ in
+                // The cover already has its final layout, but UIKit also gives
+                // the cover and the native views inside it (such as the Metal
+                // background) frame animations from the old size. Drop them:
+                // the content keeps its final size and only the cover's center
+                // follows the turning window, so everything stays centered.
+                guard let surface = self?.coverSurface else { return }
+                Self.settle(surface)
+                DispatchQueue.main.async { Self.settle(surface) }
+            }) { [weak self] _ in
+                CoverRotation.end()
+                self?.hideBackdrop()
+            }
         }
 
-        override func viewDidLayoutSubviews() {
-            super.viewDidLayoutSubviews()
-            updatePreferredSize()
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            backdrop?.removeFromSuperview()
+            backdrop = nil
         }
 
-        private func updatePreferredSize() {
-            guard let hosting, let size = view.window?.bounds.size,
-                  hosting.preferredContentSize != size else { return }
-            hosting.preferredContentSize = size
+        private func showBackdrop() {
+            guard let surface = coverSurface, let container = surface.superview,
+                  let background = Self.firstView(of: FluidBackgroundNativeView.self, in: surface),
+                  background.bounds.width > 0, background.bounds.height > 0,
+                  let snapshot = background.snapshotView(afterScreenUpdates: false) else { return }
+            backdrop?.removeFromSuperview()
+            let screen = container.window?.screen.bounds.size ?? UIScreen.main.bounds.size
+            let side = max(screen.width, screen.height)
+            let square = UIView(frame: CGRect(x: 0, y: 0, width: side, height: side))
+            square.center = CGPoint(x: container.bounds.midX, y: container.bounds.midY)
+            square.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin,
+                                       .flexibleTopMargin, .flexibleBottomMargin]
+            square.backgroundColor = .black
+            square.isUserInteractionEnabled = false
+            square.accessibilityElementsHidden = true
+            // Aspect-fill the square with the current background.
+            let scale = side / min(background.bounds.width, background.bounds.height)
+            snapshot.center = CGPoint(x: side / 2, y: side / 2)
+            snapshot.transform = CGAffineTransform(scaleX: scale, y: scale)
+            square.addSubview(snapshot)
+            container.insertSubview(square, belowSubview: surface)
+            backdrop = square
         }
 
-        func synchronize() {
-            guard viewIfLoaded?.window != nil, !isDismissing, !isDraggingPlayer else { return }
-            if requestedPresentation {
-                if let hosting {
-                    hosting.rootView = playerRootContent
-                    backgroundHost?.rootView = backdropContent
-                    updatePreferredSize()
-                    return
-                }
-                let player = PlayerController(rootView: playerRootContent)
-                player.modalPresentationStyle = usesUnifiedBackground ? .custom : .formSheet
-                if usesUnifiedBackground {
-                    if #available(iOS 16.4, *) {
-                        // Use the stable window insets supplied above. UIKit's
-                        // container insets shrink as the surface moves down,
-                        // otherwise SwiftUI enlarges and reflows the player.
-                        player.safeAreaRegions.remove(.container)
+        private func hideBackdrop() {
+            guard let square = backdrop else { return }
+            backdrop = nil
+            UIView.animate(withDuration: 0.15, animations: { square.alpha = 0 }) { _ in
+                square.removeFromSuperview()
+            }
+        }
+
+        private static func settle(_ surface: UIView) {
+            surface.layer.removeAnimation(forKey: "bounds.size")
+            surface.layer.removeAnimation(forKey: "bounds.origin")
+            func settleDescendants(of layer: CALayer) {
+                for child in layer.sublayers ?? [] {
+                    for key in ["position", "bounds.size", "bounds.origin", "anchorPoint"] {
+                        child.removeAnimation(forKey: key)
                     }
-                    player.transitioningDelegate = self
-                    let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePlayerPan(_:)))
-                    pan.delegate = self
-                    player.view.addGestureRecognizer(pan)
-                }
-                player.overrideUserInterfaceStyle = .dark
-                player.view.backgroundColor = .clear
-                player.preferredContentSize = view.window?.bounds.size ?? view.bounds.size
-                if !usesUnifiedBackground, let sheet = player.sheetPresentationController {
-                    sheet.detents = [.large()]
-                    sheet.prefersGrabberVisible = true
-                    sheet.preferredCornerRadius = 0
-                    sheet.prefersEdgeAttachedInCompactHeight = true
-                    sheet.widthFollowsPreferredContentSizeWhenEdgeAttached = true
-                    if #available(iOS 17.0, *) { sheet.prefersPageSizing = false }
-                    sheet.delegate = self
-                }
-                hosting = player
-                if !usesUnifiedBackground {
-                    let background = UIHostingController(rootView: backdropContent)
-                    background.view.backgroundColor = .black
-                    background.view.isUserInteractionEnabled = false
-                    background.view.accessibilityElementsHidden = true
-                    background.view.alpha = 0
-                    // This view belongs to UIKit's presentation container, not
-                    // player.view. Keep its hosting controller independent: making
-                    // it a child of player violates UIKit's containment checks.
-                    backgroundHost = background
-                    player.onContainerLayout = { [weak self] in self?.placeBackground() }
-                    player.onVisibilityChange = { [weak self] visible, coordinator in
-                        self?.placeBackground()
-                        guard let backdrop = self?.backgroundHost?.view else { return }
-                        if let coordinator {
-                            coordinator.animate(alongsideTransition: { _ in
-                                backdrop.alpha = visible ? 1 : 0
-                            })
-                        } else {
-                            backdrop.alpha = visible ? 1 : 0
-                        }
-                    }
-                }
-                present(player, animated: true)
-
-            } else if let hosting {
-                isDismissing = true
-                hosting.dismiss(animated: true) { [weak self] in
-                    self?.finishDismissal()
+                    settleDescendants(of: child)
                 }
             }
+            settleDescendants(of: surface.layer)
         }
 
-        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-            guard !isDismissing, !isDraggingPlayer, let pan = gestureRecognizer as? UIPanGestureRecognizer,
-                  let player = hosting, !player.isBeingPresented else { return false }
-            let bounds = player.view.bounds
-            let insets = player.view.safeAreaInsets
-            let safeHeight = bounds.height - insets.top - insets.bottom
-            let handleInset = UIDevice.current.userInterfaceIdiom == .pad
-                ? NowPlayingSplitGeometry.verticalInset(height: safeHeight) : NowPlayingPresentationMetrics.indicatorTopSpacing
-            let handleBottom = insets.top + handleInset + 44
-            return pan.location(in: player.view).y <= handleBottom && pan.velocity(in: player.view).y > 0
-        }
-
-        @objc private func handlePlayerPan(_ pan: UIPanGestureRecognizer) {
-            guard let player = hosting,
-                  let presentation = player.presentationController as? LegacyPlayerPresentationController else { return }
-            // Drag only the surfaces until release. Starting UIKit dismissal here
-            // makes even an abandoned drag run a controller disappearance cycle.
-            let coordinateView = player.view.window ?? player.view
-            let translation = max(0, pan.translation(in: coordinateView).y)
-            switch pan.state {
-            case .began:
-                guard !isDismissing, !isDraggingPlayer else { return }
-                isDraggingPlayer = true
-                presentation.updatePlayerDrag(translation: translation)
-            case .changed:
-                guard isDraggingPlayer else { return }
-                presentation.updatePlayerDrag(translation: translation)
-            case .ended:
-                guard isDraggingPlayer else { return }
-                let predicted = translation + pan.velocity(in: coordinateView).y * 0.18
-                if NowPlayingPresentationMetrics.shouldDismiss(translation: translation, predictedTranslation: predicted) {
-                    isDraggingPlayer = false
-                    isDismissing = true
-                    // The dismissal animator continues from the current drag
-                    // position. UIKit is involved only once closing is committed.
-                    player.dismiss(animated: true)
-                } else {
-                    restorePlayerAfterDrag(presentation)
-                }
-            case .cancelled, .failed:
-                guard isDraggingPlayer else { return }
-                restorePlayerAfterDrag(presentation)
-            default: break
+        private static func firstView<T: UIView>(of type: T.Type, in root: UIView) -> T? {
+            if let match = root as? T { return match }
+            for child in root.subviews {
+                if let match = firstView(of: type, in: child) { return match }
             }
-        }
-
-        private func restorePlayerAfterDrag(_ presentation: LegacyPlayerPresentationController) {
-            UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0.15 : 0.25,
-                           delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseOut]) {
-                presentation.updatePlayerDrag(translation: 0)
-            } completion: { [weak self] _ in
-                guard let self else { return }
-                self.isDraggingPlayer = false
-                self.synchronize()
-            }
-        }
-
-        func presentationController(forPresented presented: UIViewController,
-                                    presenting: UIViewController?, source: UIViewController) -> UIPresentationController? {
-            guard usesUnifiedBackground else { return nil }
-            let controller = LegacyPlayerPresentationController(presentedViewController: presented,
-                                                                  presenting: presenting)
-            controller.onDismissalEnd = { [weak self] completed in
-                guard let self else { return }
-                if completed { self.finishDismissal() }
-                else {
-                    self.isDismissing = false
-                    // Apply any request deferred during the transition.
-                    DispatchQueue.main.async { [weak self] in self?.synchronize() }
-                }
-            }
-            return controller
-        }
-
-        func animationController(forPresented presented: UIViewController, presenting: UIViewController,
-                                 source: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-            usesUnifiedBackground ? LegacyPlayerTransition(presenting: true) : nil
-        }
-
-        func animationController(forDismissed dismissed: UIViewController) -> UIViewControllerAnimatedTransitioning? {
-            usesUnifiedBackground ? LegacyPlayerTransition(presenting: false) : nil
-        }
-
-        // Put the single artwork renderer above the dimmed browser and below
-        // the sheet. Its bounds are the entire presentation container, including
-        // status-bar and iPad margins; the controls keep native sheet safe areas.
-        private func placeBackground() {
-            guard let hosting, let background = backgroundHost?.view,
-                  let container = hosting.presentationController?.containerView else { return }
-            var surface = hosting.view!
-            while let parent = surface.superview, parent !== container {
-                surface = parent
-            }
-            guard surface.superview === container else { return }
-            if background.superview !== container {
-                container.insertSubview(background, belowSubview: surface)
-            }
-            background.frame = container.bounds
-            background.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        }
-
-        final class PlayerController: UIHostingController<AnyView> {
-            var onContainerLayout: (() -> Void)?
-            var onVisibilityChange: ((Bool, UIViewControllerTransitionCoordinator?) -> Void)?
-
-            override func viewWillAppear(_ animated: Bool) {
-                super.viewWillAppear(animated)
-                onVisibilityChange?(true, transitionCoordinator)
-            }
-
-            override func viewDidLayoutSubviews() {
-                super.viewDidLayoutSubviews()
-                onContainerLayout?()
-            }
-
-            override func viewWillDisappear(_ animated: Bool) {
-                super.viewWillDisappear(animated)
-                if isBeingDismissed { onVisibilityChange?(false, transitionCoordinator) }
-            }
-        }
-
-        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-            finishDismissal()
-        }
-
-        private func finishDismissal() {
-            guard hosting != nil else { return }
-            backgroundHost?.view.removeFromSuperview()
-            backgroundHost = nil
-            hosting = nil
-            isDraggingPlayer = false
-            requestedPresentation = false
-            isDismissing = false
-            onDismiss?()
+            return nil
         }
     }
 }
 
 public struct IOSMainWindow: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var player = PlayerService.shared
     @StateObject private var account = AccountStore.shared
     @StateObject private var settings = SettingsManager.shared
@@ -526,7 +803,6 @@ public struct IOSMainWindow: View {
     @StateObject private var updater = IOSUpdater.shared
     @StateObject private var artworkStore = NowPlayingArtworkStore()
     @State private var pendingPlayerDestination: (() -> Void)?
-    @State private var legacyPlayerBackgroundActive = false
     @Namespace private var nowPlayingTransition
     @Environment(\.colorScheme) private var systemColorScheme
 
@@ -537,14 +813,9 @@ public struct IOSMainWindow: View {
     }
 
     @State private var selectedTab: IOSTab = .home
-    @State private var legacyBarCollapsed = false
-    @State private var lastLegacyMainTab: IOSTab = .home
-    @State private var legacyKeyboardVisible = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showLogin = false
     @State private var homePath: [Destination] = []
-    @State private var explorePath: [Destination] = []
     @State private var searchPath: [Destination] = []
     @State private var libraryPath: [Destination] = []
     @State private var iPadPath: [Destination] = []
@@ -559,7 +830,7 @@ public struct IOSMainWindow: View {
             .environmentObject(player)
             .environmentObject(account)
         .onChange(of: account.sessionRevision) { _ in
-            homePath = []; explorePath = []; searchPath = []; libraryPath = []; iPadPath = []
+            homePath = []; searchPath = []; libraryPath = []; iPadPath = []
         }
             .environmentObject(settings)
             .environmentObject(toasts)
@@ -580,9 +851,6 @@ public struct IOSMainWindow: View {
                     IOSUpdater.shared.check(interactive: false)
                 }
             }
-            .onChange(of: player.showNowPlaying) { presented in
-                if #unavailable(iOS 18.0), presented { legacyPlayerBackgroundActive = true }
-            }
             .task(id: needsSharedArtwork) {
                 artworkStore.setArtworkNeeded(needsSharedArtwork)
             }
@@ -597,7 +865,7 @@ public struct IOSMainWindow: View {
             .modifier(FirstLaunchOnboarding())
             .overlay(alignment: .top) {
                 VStack(spacing: 8) {
-                    if let toast = toasts.current {
+                    if !player.showNowPlaying, let toast = toasts.current {
                         ToastView(toast: toast)
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
@@ -611,9 +879,9 @@ public struct IOSMainWindow: View {
             .animation(.spring(duration: 0.35), value: player.hasCurrentTrack)
     }
 
+    /// The player loads its own artwork; the shared copy serves the ambient background.
     private var needsSharedArtwork: Bool {
-        if #available(iOS 18.0, *) { return settings.showMainWindowAmbientBackground }
-        return settings.showMainWindowAmbientBackground || player.showNowPlaying || legacyPlayerBackgroundActive
+        settings.showMainWindowAmbientBackground
     }
 
     @ViewBuilder
@@ -621,7 +889,7 @@ public struct IOSMainWindow: View {
         if #available(iOS 18.0, *) {
             zoomNowPlayingRoot
         } else {
-            legacyPresentationRoot
+            coverNowPlayingRoot
         }
     }
 
@@ -649,24 +917,37 @@ public struct IOSMainWindow: View {
         }
     }
 
-    private var legacyPresentationRoot: some View {
+    /// iOS 16–17 present the player over the full screen through UIKit, so the
+    /// system owns sizing, safe areas and rotation while the page stays in
+    /// place underneath. The system zoom transition is iOS 18+, so the cover
+    /// zooms out of the mini player and closes by handle drag on its own.
+    private var coverNowPlayingRoot: some View {
         appContent
-            .background {
-                LegacyPlayerSheet(
-                    isPresented: $player.showNowPlaying,
-                    onDismiss: finishPlayerDismissal,
-                    content: nowPlayingPresentation(showsDismissIndicator: true)
-                        .environment(\.nowPlayingBackgroundIsExternal, true)
-                        .preferredColorScheme(.dark),
-                    backdrop: NowPlayingFluidBackground(
-                        artwork: artworkStore.artwork,
-                        artworkKey: player.currentTrack?.album.picUrl,
-                        colors: artworkStore.colors,
-                        playing: player.isPlaying
-                    )
-                    .environment(\.colorScheme, resolvedColorScheme)
-                )
-            }
+            .background(
+                OverFullScreenCover(isPresented: $player.showNowPlaying, onDismiss: finishPlayerDismissal) {
+                    systemNowPlayingPresentation
+                        .transaction { transaction in
+                            guard CoverRotation.isActive else { return }
+                            transaction.animation = nil
+                            transaction.disablesAnimations = true
+                        }
+                        .background(CoverRotationBackdrop())
+                        // A UIKit presentation does not inherit this tree's environment.
+                        .environment(\.nowPlayingTransitionNamespace, nowPlayingTransition)
+                        .environmentObject(player)
+                        .environmentObject(account)
+                        .environmentObject(settings)
+                        .environmentObject(toasts)
+                        .environmentObject(artworkStore)
+                        .tint(Theme.accent)
+                        .preferredColorScheme(settings.appearance.colorScheme)
+                        .environment(\.openLogin, { showLogin = true })
+                        .environment(\.openDestination, openDestination)
+                        // iPadOS 16 does not keep scenePhase current inside a
+                        // UIKit-presented host; pass the window's own phase.
+                        .environment(\.scenePhase, scenePhase)
+                }
+            )
     }
 
     private func openPlayerDestination(_ destination: Destination) {
@@ -679,7 +960,6 @@ public struct IOSMainWindow: View {
     }
 
     private func finishPlayerDismissal() {
-        legacyPlayerBackgroundActive = false
         let destination = pendingPlayerDestination
         pendingPlayerDestination = nil
         destination?()
@@ -721,6 +1001,8 @@ public struct IOSMainWindow: View {
                 .environmentObject(settings)
         }
         .modifier(NowPlayingLoginPresenter())
+        // The cover sits above the root overlay, so it shows toasts itself.
+        .modifier(ToastOverlay())
     }
 
     @ViewBuilder
@@ -740,7 +1022,7 @@ public struct IOSMainWindow: View {
     @available(iOS 26.0, *)
     private var iOS26TabInterface: some View {
         iOS26TabView
-            .tabBarMinimizeBehavior(.onScrollDown)
+            .tabBarMinimizeBehavior(.never)
             .modifier(MiniPlayerAccessoryModifier(
                 transitionNamespace: nowPlayingTransition,
                 colorScheme: resolvedColorScheme
@@ -753,16 +1035,13 @@ public struct IOSMainWindow: View {
             Tab("推荐", systemImage: "house", value: .home) {
                 tabStack(.home) { HomeView() }
             }
-            Tab("精选", systemImage: "square.grid.2x2", value: .explore) {
-                tabStack(.explore) { ExploreView() }
+            // A regular tab: the search field lives in the page, not the bar,
+            // and the 精选 playlist shelves sit under it.
+            Tab("探索", systemImage: "magnifyingglass", value: .search) {
+                tabStack(.search) { SearchView(query: "").id(account.sessionRevision) }
             }
             Tab("我的", systemImage: "person.crop.circle", value: .library) {
                 tabStack(.library) { LibraryView(showLogin: $showLogin) }
-            }
-            Tab(value: .search, role: .search) {
-                tabStack(.search) { SearchView(query: "").id(account.sessionRevision) }
-            } label: {
-                Label("搜索", systemImage: "magnifyingglass")
             }
         }
     }
@@ -772,7 +1051,6 @@ public struct IOSMainWindow: View {
         ZStack(alignment: .bottom) {
             ZStack {
                 page(.home) { tabStack(.home) { HomeView() } }
-                page(.explore) { tabStack(.explore) { ExploreView() } }
                 page(.search) { tabStack(.search) { SearchView(query: "").id(account.sessionRevision) } }
                 page(.library) { tabStack(.library) { LibraryView(showLogin: $showLogin) } }
             }
@@ -780,77 +1058,24 @@ public struct IOSMainWindow: View {
             legacyBottomBar
                 .padding(.bottom, 6)
         }
-        .background {
-            LegacyTabScrollObserver(
-                enabled: !player.showNowPlaying && !showLogin && !legacyKeyboardVisible,
-                onCollapseChanged: setLegacyBarCollapsed
-            )
-        }
-        .onChange(of: selectedTab) { tab in
-            if tab != .search { lastLegacyMainTab = tab }
-            setLegacyBarCollapsed(false)
-        }
-        .onChange(of: homePath) { _ in setLegacyBarCollapsed(false) }
-        .onChange(of: explorePath) { _ in setLegacyBarCollapsed(false) }
-        .onChange(of: searchPath) { _ in setLegacyBarCollapsed(false) }
-        .onChange(of: libraryPath) { _ in setLegacyBarCollapsed(false) }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            legacyKeyboardVisible = true
-            setLegacyBarCollapsed(false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            legacyKeyboardVisible = false
-        }
     }
 
-    /// Keep the three surfaces alive so layout animates between the same views,
-    /// rather than fading out one hierarchy and inserting another from below.
+    /// The mini player sits above a tab bar that always stays expanded.
     private var legacyBottomBar: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
-            let expandedNavigationWidth = max(64, width - 76)
-            let navigationWidth: CGFloat = legacyBarCollapsed ? 64 : expandedNavigationWidth
-            let playerWidth = legacyBarCollapsed ? max(0, width - 152) : width
+        VStack(spacing: Theme.Layout.FloatingChrome.barSpacing) {
+            IOSMiniPlayerBar(presentation: .legacyOverlay)
+                .frame(height: Theme.Layout.FloatingChrome.miniPlayerHeight)
+                .nowPlayingTransitionSource(in: nowPlayingTransition)
 
-            ZStack(alignment: .bottomLeading) {
-                GlassTabBar(
-                    items: Self.tabItems,
-                    selection: $selectedTab,
-                    onReselect: popToRoot,
-                    isCollapsed: legacyBarCollapsed,
-                    expandedWidth: expandedNavigationWidth,
-                    collapsedTab: lastLegacyMainTab,
-                    onExpand: { setLegacyBarCollapsed(false) }
-                )
-                .frame(width: navigationWidth, height: 64)
-                .scaleEffect(legacyBarCollapsed ? 52.0 / 64.0 : 1, anchor: .leading)
-
-                IOSMiniPlayerBar(presentation: legacyBarCollapsed ? .compactOverlay : .legacyOverlay)
-                    .frame(width: playerWidth, height: 52)
-                    .nowPlayingTransitionSource(in: nowPlayingTransition)
-                    .offset(x: legacyBarCollapsed ? 76 : 0, y: legacyBarCollapsed ? -6 : -72)
-
-                LegacySearchTabButton(selection: $selectedTab, onReselect: popToRoot)
-                    .scaleEffect(legacyBarCollapsed ? 52.0 / 64.0 : 1, anchor: .trailing)
-                    .offset(x: width - 64)
-            }
-            .frame(width: width, height: proxy.size.height, alignment: .bottomLeading)
+            GlassTabBar(items: IOSTab.barItems, selection: $selectedTab, onReselect: popToRoot)
+                .frame(height: Theme.Layout.FloatingChrome.tabBarHeight)
         }
-        .frame(height: legacyBarCollapsed ? 64 : 124)
-        .padding(.horizontal, 12)
-    }
-
-    private func setLegacyBarCollapsed(_ collapsed: Bool) {
-        guard legacyBarCollapsed != collapsed else { return }
-        withAnimation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.88)) {
-            legacyBarCollapsed = collapsed
-        }
+        .padding(.horizontal, Theme.Layout.FloatingChrome.horizontalMargin)
     }
 
     private func popToRoot(_ tab: IOSTab) {
         switch tab {
         case .home: homePath = []
-        case .explore: explorePath = []
         case .search: searchPath = []
         case .library: libraryPath = []
         }
@@ -893,20 +1118,10 @@ public struct IOSMainWindow: View {
     private func binding(for tab: IOSTab) -> Binding<[Destination]> {
         switch tab {
         case .home: return $homePath
-        case .explore: return $explorePath
         case .search: return $searchPath
         case .library: return $libraryPath
         }
     }
-}
-
-extension IOSMainWindow {
-    static let tabItems: [GlassTabBar.Item] = [
-        .init(tab: .home, title: "推荐", icon: "house"),
-        .init(tab: .explore, title: "精选", icon: "square.grid.2x2"),
-        .init(tab: .search, title: "搜索", icon: "magnifyingglass"),
-        .init(tab: .library, title: "我的", icon: "person.crop.circle"),
-    ]
 }
 
 private enum NowPlayingTransitionID {
@@ -976,9 +1191,9 @@ extension View {
                 in: namespace
             )
         } else {
-            // Pre-18 presents full-screen with a slide transition (see
-            // legacyPresentationRoot); no matched-geometry pairing needed.
-            self
+            // Pre-18 the cover zooms out of the mini player by hand (see
+            // CoverZoomMotion), so it needs the mini player's frame.
+            modifier(NowPlayingZoomSourceReporter(cornerRadius: Theme.Layout.iPadChromeCornerRadius))
         }
     }
 }

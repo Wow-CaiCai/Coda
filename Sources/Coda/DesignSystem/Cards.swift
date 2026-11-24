@@ -54,7 +54,7 @@ struct CoverCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.interactiveCard)
-        .onHover { isHovering = $0 }
+        .scrollAwareHover { isHovering = $0 }
     }
 }
 
@@ -62,12 +62,13 @@ struct PlaylistCoverCard: View {
     let playlist: PlaylistSummary
     var subtitle: String?
     var size: CGFloat = Theme.Layout.cardSize
+    var cornerRadius: CGFloat = Theme.Radius.cover
     var onPlay: (() -> Void)?
 
     var body: some View {
         CoverCardBody(coverURL: playlist.coverURL?.resizedImageURL(384),
                       playlistID: playlist.id, title: playlist.name, subtitle: subtitle,
-                      playCount: playlist.playCount, size: size,
+                      playCount: playlist.playCount, size: size, cornerRadius: cornerRadius,
                       reservesTitleSpace: true, onPlay: onPlay)
     }
 }
@@ -134,6 +135,8 @@ extension EnvironmentValues {
 
 struct CardGrid<Content: View>: View {
     var minWidth: CGFloat = Theme.Layout.cardSize
+    /// Cover grids keep every column at exactly the shared card size.
+    var fixedColumnWidth = true
     @ViewBuilder var content: () -> Content
 
     #if os(iOS)
@@ -147,7 +150,7 @@ struct CardGrid<Content: View>: View {
         isCompact
             ? [GridItem(.flexible(), spacing: Theme.Spacing.component, alignment: .top),
                GridItem(.flexible(), spacing: Theme.Spacing.component, alignment: .top)]
-            : [GridItem(.adaptive(minimum: minWidth, maximum: minWidth + 40),
+            : [GridItem(.adaptive(minimum: minWidth, maximum: fixedColumnWidth ? minWidth : minWidth + 40),
                         spacing: Theme.Spacing.component, alignment: .top)]
     }
 

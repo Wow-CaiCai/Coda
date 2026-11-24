@@ -73,13 +73,16 @@ struct MusicLibraryLoadingView: View {
     var scrollsHorizontally = false
     var showsHorizontalPanel = true
     var horizontalInset: CGFloat = Theme.Layout.trackListInset
+    /// Caps each horizontal column at one width on every platform.
+    var fixedColumnWidth: CGFloat?
     private var layout = MusicLibraryTrackLayout()
     @Environment(\.horizontalSizeClass) private var sizeClass
     @ScaledMetric(relativeTo: .body) private var artworkSize: CGFloat = Theme.Layout.trackArtworkSize
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = Theme.Layout.trackRowHeight
 
     init(rowsPerColumn: Int = 6, scrollsHorizontally: Bool = false, showsHorizontalPanel: Bool = true,
-         horizontalInset: CGFloat = Theme.Layout.trackListInset) {
+         horizontalInset: CGFloat = Theme.Layout.trackListInset, fixedColumnWidth: CGFloat? = nil) {
+        self.fixedColumnWidth = fixedColumnWidth
         self.rowsPerColumn = rowsPerColumn
         self.scrollsHorizontally = scrollsHorizontally
         self.showsHorizontalPanel = showsHorizontalPanel
@@ -116,11 +119,13 @@ struct MusicLibraryLoadingView: View {
         return GeometryReader { geometry in
             let available = max(1, geometry.size.width - 2 * horizontalInset)
             let columns = !isCompact && geometry.size.width >= 700 ? 2 : 1
-            let columnWidth = max(1, (available - CGFloat(columns - 1) * 24) / CGFloat(columns)
+            let fittedWidth = max(1, (available - CGFloat(columns - 1) * 24) / CGFloat(columns)
                                   - (isCompact ? 20 : 0))
+            let columnWidth = fixedColumnWidth.map { max(1, min($0, available - (isCompact ? 20 : 0))) } ?? fittedWidth
+            let visibleColumns = fixedColumnWidth.map { max(1, Int(ceil(available / ($0 + 24)))) } ?? columns
             ScenePreservingScrollView(.horizontal, showsIndicators: false) {
                 LazyHGrid(rows: Array(repeating: GridItem(.fixed(rowHeight), spacing: 1), count: rowsPerColumn), spacing: Theme.Spacing.group) {
-                    ForEach(0..<(rowsPerColumn * (columns + 1)), id: \.self) { _ in
+                    ForEach(0..<(rowsPerColumn * (visibleColumns + 1)), id: \.self) { _ in
                         songRow.frame(width: columnWidth)
                     }
                 }
@@ -160,6 +165,8 @@ struct MusicTrackPanel: View {
     var scrollsHorizontally = false
     var horizontalRowLimit = 7
     var horizontalInset: CGFloat = Theme.Layout.trackListInset
+    /// Caps each horizontal column at one width on every platform.
+    var fixedColumnWidth: CGFloat?
     var showsHorizontalPanel = true
     var onLastTrackAppear: (() -> Void)?
     var horizontalLoading = HorizontalPageLoading()
@@ -214,8 +221,9 @@ struct MusicTrackPanel: View {
         return GeometryReader { geometry in
             let available = max(1, geometry.size.width - 2 * horizontalInset)
             let columns = !isCompact && geometry.size.width >= 700 ? 2 : 1
-            let columnWidth = max(1, (available - CGFloat(columns - 1) * 24) / CGFloat(columns)
-                                  - (isCompact && tracks.count > rows ? 20 : 0))
+            let peek: CGFloat = isCompact && tracks.count > rows ? 20 : 0
+            let fittedWidth = max(1, (available - CGFloat(columns - 1) * 24) / CGFloat(columns) - peek)
+            let columnWidth = fixedColumnWidth.map { max(1, min($0, available - peek)) } ?? fittedWidth
             HorizontalPagingScrollView(itemCount: tracks.count, resetKey: tracks.first?.id,
                                        pageSize: max(1, rows) * 4, horizontalInset: horizontalInset,
                                        spacing: Theme.Spacing.group, loading: horizontalLoading) { visibleCount in
@@ -532,7 +540,7 @@ struct MusicLibraryCardLoadingView: View {
         CardGrid {
             ForEach(0..<6, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: Theme.Spacing.small) {
-                    SkeletonView(cornerRadius: circularCover ? 1000 : Theme.Radius.standard)
+                    SkeletonView(cornerRadius: circularCover ? 1000 : Theme.Radius.cover)
                         .aspectRatio(1, contentMode: .fit)
                     SkeletonView(cornerRadius: 4).frame(height: 14)
                     SkeletonView(cornerRadius: 4).frame(maxWidth: 100).frame(height: 11)

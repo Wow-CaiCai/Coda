@@ -108,15 +108,8 @@ struct NowPlayingView: View {
             .environment(\.playlistPanelSelected, playlistTrack != nil)
             #if os(macOS)
             .overlay(alignment: .top) {
-                Button(action: close) {
-                    Capsule().fill(.white.opacity(0.38))
-                        .frame(width: 44, height: NowPlayingSplitGeometry.handleHeight)
-                        .frame(width: 120, height: 24, alignment: .top)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, NowPlayingSplitGeometry.verticalInset(height: geo.size.height))
-                .accessibilityLabel("收起播放页")
+                DesktopPlayerHandle(close: close)
+                    .padding(.top, NowPlayingSplitGeometry.verticalInset(height: geo.size.height))
             }
             #endif
 
@@ -146,14 +139,6 @@ struct NowPlayingView: View {
             if playlistTrack != nil { playlistTrack = player.currentTrack }
             iPadComments = iPadPanel == .comments
                 ? player.currentTrack.map { SongCommentsStore(trackID: $0.id) } : nil
-        }
-        .alert("歌词来源", isPresented: Binding(
-            get: { player.lyricsSourceError != nil },
-            set: { if !$0 { player.lyricsSourceError = nil } }
-        )) {
-            Button("好", role: .cancel) { player.lyricsSourceError = nil }
-        } message: {
-            Text(player.lyricsSourceError ?? "")
         }
         #if os(macOS)
         .onExitCommand {
@@ -400,6 +385,8 @@ struct NowPlayingView: View {
         let isNarrow = size.width < 600
         let inset: CGFloat = isNarrow ? 24 : min(72, size.width * 0.06)
         let width = max(0, min(size.width - inset * 2, 960))
+        // The header and panels share the progress bar's width, as on Mac.
+        let contentWidth = portraitControlsWidth(availableWidth: width)
         let showsFullControls = iPadPanel == .lyrics && playlistTrack == nil
         let showsArtwork = !showsSingleColumnLyrics && showsFullControls
         let lyricsVisible = !showsArtwork && portraitLyricsEntrancePresented
@@ -409,7 +396,7 @@ struct NowPlayingView: View {
             // Keep the lyric viewport alive across artwork toggles. Recreating
             // its native text hosts during the transition stalls the first frames.
             VStack(spacing: isNarrow ? Theme.Spacing.small : Theme.Spacing.component) {
-                singleColumnTrackHeader(width: width)
+                singleColumnTrackHeader(width: contentWidth)
                 .offset(y: showsArtwork && !reducePlayerMotion ? 40 : 0)
                 .opacity(showsArtwork ? 0 : 1)
                 .animation(PortraitPageMotion.header(presented: !showsArtwork, reduced: reducePlayerMotion),
@@ -428,7 +415,9 @@ struct NowPlayingView: View {
                         onInteraction: togglePortraitControlsFromTap
                     ) : nil)
                     .padding(.bottom, usesPortraitLyricsInterface ? 0 : portraitControlsHeight)
-                    .padding(.horizontal, -16)
+                    // As on Mac, lyrics, comments, queue and playlist panels
+                    // start at the header's leading edge with no own gutter.
+                    .environment(\.nowPlayingFlushPanelEdges, true)
                     .overlay(alignment: .bottomTrailing) {
                         if iPadPanel == .lyrics && playlistTrack == nil {
                             iPadLyricsAnnotationButtons
@@ -447,7 +436,7 @@ struct NowPlayingView: View {
                     .opacity(lyricsVisible ? 1 : 0)
                     .animation(PortraitPageMotion.opacity(reduced: reducePlayerMotion), value: lyricsVisible)
             }
-            .frame(width: width)
+            .frame(width: contentWidth)
             .allowsHitTesting(!showsArtwork)
             .accessibilityHidden(showsArtwork)
 
@@ -485,7 +474,7 @@ struct NowPlayingView: View {
                 .accessibilityHidden(true)
         }
         .overlay {
-            portraitSharedArtwork(expanded: showsArtwork)
+            portraitSharedArtwork(expanded: showsArtwork, headerLeading: (width - contentWidth) / 2)
         }
         .coordinateSpace(name: "NowPlayingPortraitArtwork")
         .onPreferenceChange(PortraitArtworkFrameKey.self) { frame in
@@ -579,9 +568,9 @@ struct NowPlayingView: View {
     /// One overlay travels between the stationary artwork-page measurement and
     /// the 72pt song header; page details animate independently underneath it.
     @ViewBuilder
-    private func portraitSharedArtwork(expanded: Bool) -> some View {
+    private func portraitSharedArtwork(expanded: Bool, headerLeading: CGFloat) -> some View {
         if portraitArtworkPageFrame.width > 0 {
-            let frame = expanded ? portraitArtworkPageFrame : CGRect(x: 0, y: 0, width: 72, height: 72)
+            let frame = expanded ? portraitArtworkPageFrame : CGRect(x: headerLeading, y: 0, width: 72, height: 72)
             let pausedInset = expanded && !player.isPlaying ? frame.width * (1 - 0.74) / 2 : 0
             let displayedFrame = frame.insetBy(dx: pausedInset, dy: pausedInset)
             NowPlayingPortraitArtwork(image: artworkImage, isArtworkPage: expanded, isPlaying: player.isPlaying)
@@ -839,38 +828,53 @@ struct NowPlayingView: View {
     /// actions; the right column mirrors portrait, with the playback controls
     /// floating over the lyrics and fading out after 3s of inactivity.
     private func phoneRegularLayout(size: CGSize) -> some View {
-        let horizontalInset: CGFloat = 24
-        let columnSpacing: CGFloat = 32
-        let topInset: CGFloat = 20
-        let bottomInset: CGFloat = 4
+        // Same split rules as iPad and Mac: the halves meet at the centered
+        // handle, and the cover keeps equal margins on both sides.
         let metadataSpacing: CGFloat = 14
-        let availableWidth = max(0, size.width - horizontalInset * 2 - columnSpacing)
-        let leftWidth = availableWidth * 0.45
-        let rightWidth = availableWidth - leftWidth
-        let contentHeight = max(0, size.height - topInset - bottomInset)
-        let coverSize = max(0, min(leftWidth, contentHeight - iPadMetadataHeight - metadataSpacing))
+        func geometry(reserving reserved: CGFloat) -> NowPlayingSplitGeometry {
+            NowPlayingSplitGeometry(size: size, reservedLeftHeight: reserved,
+                                    handleWidth: NowPlayingPresentationMetrics.indicatorWidth,
+                                    handleToContentSpacing: 16,
+                                    preferredHorizontalInset: 20)
+        }
+        // Content height does not depend on the reserved height.
+        let contentHeight = geometry(reserving: 0).contentHeight
         // Landscape height is scarce; size the controls by height so the
         // lyrics keep a usable band while the controls are showing.
         let metrics = ControlMetrics(scale: min(1, max(0.72, contentHeight * 0.62 / 280)))
-        let content = HStack(spacing: columnSpacing) {
-            VStack(spacing: metadataSpacing) {
+        // The song row shares its center line with the right column's bottom
+        // utility bar (device, comments, queue, lyrics), so the playlist and
+        // favorite buttons sit level with them. A taller row may reach into
+        // the bottom inset rather than shrink the cover.
+        let rowBottomInset = max(-geometry(reserving: 0).verticalInset,
+                                 (metrics.utilityHeight - iPadMetadataHeight) / 2)
+        let rowHeight = iPadMetadataHeight + metadataSpacing + rowBottomInset
+        let layout = geometry(reserving: rowHeight)
+        let leftWidth = layout.halfWidth
+        let rightWidth = layout.panelWidth
+        let coverSize = max(0, min(layout.playerWidth, contentHeight - rowHeight))
+        let content = HStack(spacing: 0) {
+            VStack(spacing: 0) {
                 artworkView(size: coverSize)
                     .accessibilityIdentifier("landscapePlayerArtwork")
+                Spacer(minLength: metadataSpacing)
                 NowPlayingTrackInfoRow(onOpenDestination: openTrackDestination,
                                        largeMetadata: true, movesMoreToDeviceRow: true,
                                        showsMoreBesideFavorite: true,
                                        onAddToPlaylist: togglePlaylistPanel)
-                    .frame(width: leftWidth, height: iPadMetadataHeight)
+                    .frame(width: coverSize, height: iPadMetadataHeight)
+                    .offset(y: -rowBottomInset)
             }
             .frame(width: leftWidth, height: contentHeight)
 
             landscapeLyricsColumn(width: rightWidth, metrics: metrics)
                 .frame(width: rightWidth, height: contentHeight)
+                .padding(.trailing, layout.horizontalInset)
         }
-        .padding(.horizontal, horizontalInset)
-        .padding(.top, topInset)
-        .padding(.bottom, bottomInset)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: size.width, height: contentHeight, alignment: .top)
+        .padding(.top, layout.top)
+        .padding(.bottom, layout.verticalInset)
+        .frame(width: size.width, height: size.height, alignment: .top)
         .background {
             // All blank page space, including the margins and safe-area
             // edges, toggles the controls like blank lyric space. The
@@ -899,7 +903,7 @@ struct NowPlayingView: View {
                     onInteraction: togglePortraitControlsFromTap
                 ) : nil)
                 .padding(.bottom, usesPortraitLyricsInterface ? 0 : portraitControlsHeight)
-                .padding(.horizontal, -16)
+                .environment(\.nowPlayingFlushPanelEdges, true)
                 .overlay(alignment: .bottomTrailing) {
                     if iPadPanel == .lyrics && playlistTrack == nil {
                         iPadLyricsAnnotationButtons
@@ -1101,9 +1105,11 @@ struct NowPlayingView: View {
                                trackHeight: CGFloat = NowPlayingSliderStyle.trackHeight) -> some View {
         HStack(spacing: Theme.Spacing.control) {
             Image(systemName: "speaker.fill").font(.system(size: 13))
-            #if os(iOS)
+            #if os(iOS) && !targetEnvironment(simulator)
             IOSSystemVolumeSlider(trackHeight: trackHeight, showsLevelIcon: true).frame(height: rowHeight)
             #else
+            // The simulator has no system volume route (MPVolumeView shows
+            // "No Volume Available"), so drive the in-app gain there instead.
             PlayerSlider(fraction: Double(player.volume), trackHeight: trackHeight,
                          onChanged: { player.volume = Float($0) },
                          onEnded: { player.volume = Float($0) })
@@ -1313,8 +1319,11 @@ private struct ActiveKaraokeLyricText: View {
 
     private var allowsAnimation: Bool {
         #if os(iOS)
-        // Notification/Control Center leave the scene visible but inactive.
-        return scenePhase != .background
+        // KaraokeLineView suspends on didEnterBackground and resumes on
+        // didBecomeActive itself. On iPadOS 16 the scenePhase environment
+        // inside the equatable lyric row stays `.background` after returning,
+        // which froze the active line's wipe.
+        return true
         #else
         // A visible Mac window keeps singing when another app takes focus.
         return scenePhase != .background
@@ -1928,3 +1937,48 @@ private extension EnvironmentValues {
         set { self[PlaylistPanelSelectedKey.self] = newValue }
     }
 }
+
+#if os(macOS)
+/// The player's top handle: click to close, or drag down to pull the player
+/// away and release past the threshold to close it.
+private struct DesktopPlayerHandle: View {
+    let close: () -> Void
+    @Environment(\.desktopNowPlayingDrag) private var drag
+    @State private var isDragging = false
+    @State private var isHovering = false
+
+    var body: some View {
+        Capsule().fill(.white.opacity(isDragging || isHovering ? 0.6 : 0.38))
+            .frame(width: 44, height: NowPlayingSplitGeometry.handleHeight)
+            .frame(width: 120, height: 24, alignment: .top)
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.15), value: isDragging || isHovering)
+            .onHover { isHovering = $0 }
+            .gesture(
+                // Global space: the surface moves under the pointer while dragging.
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        let moved = abs(value.translation.height) > 3 || abs(value.translation.width) > 3
+                        guard isDragging || moved else { return }
+                        isDragging = true
+                        drag?.changed(value.translation.height)
+                    }
+                    .onEnded { value in
+                        guard isDragging else {
+                            close()
+                            return
+                        }
+                        isDragging = false
+                        let shouldClose = drag?.ended(value.translation.height,
+                                                      value.predictedEndTranslation.height) ?? false
+                        if shouldClose { close() }
+                    }
+            )
+            .accessibilityElement()
+            .accessibilityLabel("收起播放页")
+            .accessibilityHint("向下拖动或点按以收起")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { close() }
+    }
+}
+#endif

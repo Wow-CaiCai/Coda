@@ -10,7 +10,6 @@ struct QishuiHomeView: View {
     @StateObject private var scenes = PanelResource<[QishuiListeningScene]>([])
     @StateObject private var charts = HomeViewModel.qishui
     @ObservedObject private var discovery = HomeDiscoveryModel.shared
-    @State private var shelfWidth: CGFloat = 0
     #if os(macOS)
     @State private var modeIcons: [String: CGImage] = [:]
     #endif
@@ -21,14 +20,11 @@ struct QishuiHomeView: View {
             LazyVStack(alignment: .leading, spacing: HomeLayout.sectionSpacing) {
                 listeningModes
                 HomeToplistsSection(model: charts, contentInset: layout.contentInset)
-                HomeDiscoverySections(model: discovery, shelfWidth: shelfWidth, songRows: false)
+                HomeDiscoverySections(model: discovery, songRows: false)
                 PlayerClearanceSpacer()
             }
             .pageHeaderTopPadding(layout.contentInset)
             .frame(maxWidth: .infinity, alignment: .leading)
-            #if os(iOS)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { shelfWidth = $0 }
-            #endif
         }
         .background(Theme.LikedMusic.background(colorScheme))
         .appRootNavigationTitle(String(localized: "推荐"))

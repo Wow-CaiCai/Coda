@@ -1021,6 +1021,23 @@ enum NeteaseAPI {
         return try await eapi(ArtistResponse.self, "/v1/artist/\(id)")
     }
 
+    /// Other names Netease records for an artist: aliases ("Joe Hisaishi")
+    /// and the translated name ("久石让"), used by lyric matching.
+    static func artistAliases(id: Int) async throws -> [String] {
+        struct Response: Decodable {
+            struct Artist: Decodable {
+                let alias: [String]?
+                let trans: String?
+                let transNames: [String]?
+            }
+            let artist: Artist
+        }
+        try MusicProviderContext.shared.requireNetease()
+        guard id > 0 else { throw MusicProviderError.missingTrack }
+        let artist = try await eapi(Response.self, "/v1/artist/\(id)").artist
+        return (artist.alias ?? []) + [artist.trans].compactMap { $0 } + (artist.transNames ?? [])
+    }
+
     struct ArtistAlbumsResponse: Decodable {
         let hotAlbums: [AlbumSummary]
         let more: Bool?
@@ -1146,7 +1163,11 @@ enum NeteaseAPI {
     static func searchDefaultKeyword() async throws -> String? {
         if MusicProviderContext.shared.current != .netease { return nil }
         try MusicProviderContext.shared.requireNetease()
-        return try await eapi(SearchDefaultResponse.self, "/search/defaultkeyword/get").data?.showKeyword
+        let body = try await eapi(SearchDefaultResponse.self, "/search/defaultkeyword/get").data
+        // showKeyword is decorated hint text ("大家都在搜 …"); realkeyword is the query.
+        return [body?.realkeyword, body?.showKeyword]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
     }
 
     // MARK: - Personalized extras

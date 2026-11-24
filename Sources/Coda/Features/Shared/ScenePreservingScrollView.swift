@@ -211,10 +211,6 @@ private struct SceneScrollProbe: UIViewRepresentable {
         private var registrations: [Registration] = []
         private weak var registeredScrollView: UIScrollView?
         private var registrationScheduled = false
-        private weak var nativeTabController: UITabBarController?
-        private var expansionTravel: CGFloat = 0
-        private var lastPanTranslation: CGFloat = 0
-        private var temporarilyExpanded = false
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
@@ -280,46 +276,8 @@ private struct SceneScrollProbe: UIViewRepresentable {
         }
 
         @objc private func scrollGestureChanged(_ gesture: UIPanGestureRecognizer) {
-            guard #available(iOS 26.0, *) else { return }
-            let translation = gesture.translation(in: registeredScrollView).y
-            switch gesture.state {
-            case .began:
-                restoreNativeMinimization()
-                expansionTravel = 0
-                lastPanTranslation = translation
-                // Reconnect before UIKit processes a new scrolling interaction.
-                connect()
-            case .changed:
-                let delta = translation - lastPanTranslation
-                lastPanTranslation = translation
-                // A positive finger delta scrolls back toward earlier content.
-                // Ignore horizontal shelves and require deliberate reverse travel.
-                guard !temporarilyExpanded,
-                      let scroll = registeredScrollView,
-                      scroll.contentOffset.y > -scroll.adjustedContentInset.top + 2,
-                      abs(gesture.velocity(in: scroll).y) > abs(gesture.velocity(in: scroll).x)
-                else { return }
-                expansionTravel = delta > 0 ? expansionTravel + delta : 0
-                if expansionTravel > 18, let controller = nativeTabController {
-                    temporarilyExpanded = true
-                    controller.tabBarMinimizeBehavior = .never
-                }
-            case .ended, .cancelled, .failed:
-                expansionTravel = 0
-                // Restore after UIKit finishes this gesture, so the next
-                // downward gesture starts with normal native minimization.
-                DispatchQueue.main.async { [weak self] in
-                    self?.restoreNativeMinimization()
-                }
-            default:
-                break
-            }
-        }
-
-        private func restoreNativeMinimization() {
-            guard #available(iOS 26.0, *), temporarilyExpanded else { return }
-            nativeTabController?.tabBarMinimizeBehavior = .onScrollDown
-            temporarilyExpanded = false
+            // Reconnect before UIKit processes a new scrolling interaction.
+            if gesture.state == .began { connect() }
         }
 
         private func registerPrimaryScrollView(_ scroll: UIScrollView) {
@@ -359,7 +317,6 @@ private struct SceneScrollProbe: UIViewRepresentable {
             if registeredScrollView !== scroll || !sameOwners {
                 unregisterPrimaryScrollView()
                 registeredScrollView = scroll
-                nativeTabController = tabController
                 registrations = owners.map { owner in
                     let previous = owner.contentScrollView(for: .bottom)
                     return Registration(controller: owner, previousScrollView: previous === scroll ? nil : previous)
@@ -374,8 +331,6 @@ private struct SceneScrollProbe: UIViewRepresentable {
         }
 
         func unregisterPrimaryScrollView() {
-            restoreNativeMinimization()
-            nativeTabController = nil
             guard let scroll = registeredScrollView else {
                 registrations.removeAll()
                 return

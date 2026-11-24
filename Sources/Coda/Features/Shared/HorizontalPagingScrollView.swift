@@ -118,12 +118,13 @@ struct HorizontalCardLoadingColumn: View {
     var rows = 1
     var width: CGFloat = Theme.Layout.cardSize
     var circular = false
+    var cornerRadius: CGFloat = Theme.Radius.cover
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.group) {
             ForEach(0..<rows, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: Theme.Spacing.small) {
-                    SkeletonView(cornerRadius: circular ? 1000 : Theme.Radius.standard)
+                    SkeletonView(cornerRadius: circular ? 1000 : cornerRadius)
                         .frame(width: width, height: width)
                     SkeletonView(cornerRadius: 4).frame(width: width * 0.8, height: 16)
                     SkeletonView(cornerRadius: 4).frame(width: width * 0.6, height: 12)

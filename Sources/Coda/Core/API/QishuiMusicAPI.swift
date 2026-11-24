@@ -38,6 +38,16 @@ enum QishuiError: LocalizedError {
         case .unavailable: return "汽水音乐当前未提供可用的完整音频"
         }
     }
+
+    /// Qishui answered but will not serve the full song (no membership or no
+    /// rights), so the same recording may still play from another source.
+    /// Login and signing failures are the user's to fix and stay as they are.
+    var invitesUnblock: Bool {
+        switch self {
+        case .previewOnly, .unavailable: return true
+        default: return false
+        }
+    }
 }
 
 /// Direct native transport with the SodaM signer for PC playback requests.

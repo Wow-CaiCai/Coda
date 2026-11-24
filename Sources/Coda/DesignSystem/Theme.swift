@@ -42,6 +42,8 @@ enum Theme {
         static let small: CGFloat = 6
         static let standard: CGFloat = 8
         static let large: CGFloat = 12
+        /// Playlist and album covers, matching the home radar cards.
+        static let cover: CGFloat = 22
         static let panel: CGFloat = 20
     }
 
@@ -105,7 +107,11 @@ enum Theme {
         static let trackRowHorizontalInset = Spacing.control
         /// Align row content, including its internal inset, to the page edge.
         static var trackListInset: CGFloat { contentInset - trackRowHorizontalInset }
-        static let cardSize: CGFloat = 160
+        /// Home song shelves use one column width on Mac, iPad and iPhone:
+        /// the width of a 393pt-wide iPhone's column (393 − 2×8 − 20pt peek).
+        static let homeSongColumnWidth: CGFloat = 357
+        /// Cover cards everywhere match the home radar cards.
+        static let cardSize: CGFloat = 178
         static func fittedShelfCardSize(availableWidth: CGFloat, leadingInset: CGFloat, spacing: CGFloat = 16) -> CGFloat {
             let usableWidth = availableWidth - leadingInset - spacing
             // A zero-width proposal while the split view is resizing still needs one 1pt card.

@@ -3,7 +3,7 @@
 // 用法：
 //   swift Scripts/record-window.swift <bundle id> <秒数> <输出.mov>
 // 例如：
-//   swift Scripts/record-window.swift wow.caicai.coda.dev 12 docs/assets/recordings/mac-player-raw.mov
+//   swift Scripts/record-window.swift wow.caicai.coda.dev 12 docs/assets/recordings/mac/player-raw.mov
 //
 // 需要“屏幕录制”权限；录完的文件交给 make-loop-video.swift 剪成循环片段。
 import AppKit

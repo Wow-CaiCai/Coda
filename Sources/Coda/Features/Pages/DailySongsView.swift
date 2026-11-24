@@ -57,6 +57,7 @@ struct DailySongsView: View {
                 PlayerClearanceSpacer()
             }
         }
+        .loadingCrossfade(isLoading)
         // Applied to the content (not inside `.background`) so the artwork's
         // light/dark verdict also drives the foreground color scheme.
         .modifier(DetailArtworkBackground(artworkURL: tracks.first?.album.picUrl))

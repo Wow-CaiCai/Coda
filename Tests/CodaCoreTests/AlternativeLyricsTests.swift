@@ -192,8 +192,9 @@ import Testing
 
     @Test func retainsOriginalInstrumentalDesignation() throws {
         let response = try AlternativeLyricsAPI.response(lrc: "[00:00.00]纯音乐，请欣赏")
+        // The Netease route requests the track's own id, so it is matched by id.
         let original = LyricsCandidate(source: .netease, id: "1", title: "晴天", artists: ["周杰伦"],
-            album: "叶惠美", duration: 269, response: response)
+            album: "叶惠美", duration: 269, response: response, matchedByID: true)
         #expect(LyricsMatching.best([try candidate(.kugou, wordTimed: true), original], for: try track())?.source == .netease)
     }
 

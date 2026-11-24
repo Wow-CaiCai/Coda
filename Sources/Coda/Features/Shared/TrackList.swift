@@ -85,7 +85,9 @@ struct TrackRow: View {
     // Native cells retain this view graph when rebound to another song. Scope
     // transient state and asynchronous completions to the song they belong to.
     @State private var hoveredTrackID: Int?
+    #if os(iOS)
     @State private var addToPlaylistTrack: Track?
+    #endif
     @State private var reducingRecommendationIDs: Set<Int> = []
     /// Only this track's download state, so another row's transfer cannot
     /// re-evaluate this body four times a second.
@@ -215,7 +217,7 @@ struct TrackRow: View {
         .frame(height: rowHeight)
         .opacity(isPlayable && !needsNetwork ? 1 : 0.45)
         .contentShape(Rectangle())
-        .onHover { hovering in
+        .scrollAwareHover { hovering in
             // Scrolling moves many rows beneath the pointer. Avoid starting a
             // new implicit animation for every row crossed during a scroll.
             hoveredTrackID = hovering ? track.id : nil
@@ -230,12 +232,16 @@ struct TrackRow: View {
         }
         #endif
         .contextMenu { contextMenuItems }
+        #if os(iOS)
         .sheet(item: $addToPlaylistTrack) { selectedTrack in
             AddToPlaylistSheet(track: selectedTrack)
         }
+        #endif
         .onChange(of: track.id) { _ in
             hoveredTrackID = nil
+            #if os(iOS)
             addToPlaylistTrack = nil
+            #endif
         }
     }
 
@@ -273,7 +279,9 @@ struct TrackRow: View {
         if isCompact {
             CachedAsyncImage(url: track.album.picUrl?.resizedImageURL(160), animated: false)
                 .frame(width: compactArtworkSize, height: compactArtworkSize)
+                #if os(iOS)
                 .compositingGroup()
+                #endif
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous))
         } else {
             CachedAsyncImage(url: track.album.picUrl?.resizedImageURL(96), animated: false)
@@ -475,7 +483,11 @@ struct TrackRow: View {
         }
         if account.provider.supports(.playlistTrackAddition) {
         Button("收藏到歌单…") {
+            #if os(macOS)
+            AddToPlaylistPresenter.shared.track = track
+            #else
             addToPlaylistTrack = track
+            #endif
         }
         }
         if let onDeleteFromCloud {
@@ -896,6 +908,26 @@ struct TrackListView: View {
 }
 
 // MARK: - Add to playlist
+
+#if os(macOS)
+/// One window-level sheet for every song row. A `.sheet` on each row gives
+/// dozens of on-screen rows their own presentation host.
+@MainActor
+final class AddToPlaylistPresenter: ObservableObject {
+    static let shared = AddToPlaylistPresenter()
+    @Published var track: Track?
+}
+
+struct AddToPlaylistPresentation: ViewModifier {
+    @ObservedObject private var presenter = AddToPlaylistPresenter.shared
+
+    func body(content: Content) -> some View {
+        content.sheet(item: $presenter.track) { track in
+            AddToPlaylistSheet(track: track)
+        }
+    }
+}
+#endif
 
 struct AddToPlaylistSheet: View {
     let track: Track

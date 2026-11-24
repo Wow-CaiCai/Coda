@@ -194,28 +194,37 @@ struct MusicAccountsSection: View {
     private func perform(_ action: () async throws -> Void) async {
         do { try await action() } catch { presentation.errorMessage = error.localizedDescription }
     }
-    private func membershipTitle(_ item: MusicAccount) -> String {
-        if manager.refreshingMembershipIDs.contains(item.id), item.membership == nil { return "查询中…" }
-        let title = item.membership?.membership.rawValue ?? MusicMembership.unknown.rawValue
-        return manager.failedMembershipIDs.contains(item.id) && item.membership != nil ? title + "（待更新）" : title
-    }
+    private func membershipTitle(_ item: MusicAccount) -> String { manager.membershipTitle(for: item) }
 }
 
-/// macOS Forms draw Buttons bordered and Menus as native pop-up buttons with
-/// their own icon metrics; render all account actions through one button style
-/// and one label layout so icons share a column and titles line up.
 /// Whether the saved login still works on its platform: green valid, red expired,
 /// gray while checking or when the platform cannot tell.
-private struct AccountValidityBadge: View {
+struct AccountValidityBadge: View {
     let status: MusicAccountValidity
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: 8, height: 8)
-            .opacity(status == .checking ? 0.5 : 1)
-            .help(status.rawValue)
-            .accessibilityLabel("登录状态：\(status.rawValue)")
+        // Breathes while the check runs; the timeline is paused otherwise.
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isPulsing)) { context in
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+                .opacity(opacity(at: context.date))
+        }
+        .frame(width: 8, height: 8)
+        .animation(.easeInOut(duration: 0.25), value: status)
+        .help(status.rawValue)
+        .accessibilityElement()
+        .accessibilityLabel("登录状态：\(status.rawValue)")
+    }
+
+    private var isPulsing: Bool { status == .checking && !reduceMotion }
+
+    private func opacity(at date: Date) -> Double {
+        guard status == .checking else { return 1 }
+        guard isPulsing else { return 0.5 }
+        let phase = (sin(date.timeIntervalSinceReferenceDate * .pi / 0.75) + 1) / 2
+        return 0.25 + 0.55 * phase
     }
 
     private var color: Color {
@@ -227,6 +236,9 @@ private struct AccountValidityBadge: View {
     }
 }
 
+/// macOS Forms draw Buttons bordered and Menus as native pop-up buttons with
+/// their own icon metrics; render all account actions through one button style
+/// and one label layout so icons share a column and titles line up.
 private struct AccountActionStyle: ViewModifier {
     var isMenu = false
 

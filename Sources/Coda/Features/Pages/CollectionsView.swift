@@ -72,7 +72,7 @@ struct CollectionsView: View {
                             EmptyStateView(icon: "music.microphone", title: "还没有关注歌手")
                                 .frame(minHeight: 300)
                         } else {
-                            CardGrid(minWidth: 140) {
+                            CardGrid(minWidth: 140, fixedColumnWidth: false) {
                                 ForEach(account.likedArtists) { artist in
                                     NavigationLink(value: Destination.artist(artist.id)) {
                                         ProfileDetailArtistCardBody(artist: artist)
@@ -88,6 +88,8 @@ struct CollectionsView: View {
                 PlayerClearanceSpacer()
             }
         }
+        .loadingCrossfade(isLoading && account.likedAlbums.isEmpty && account.likedArtists.isEmpty)
+        .contentCrossfade(on: tab)
         .background(trackLayout.background)
         .musicLibraryNavigationTitle(String(localized: "我的收藏"), enabled: trackLayout.usesPanel)
         #if os(iOS)
@@ -174,6 +176,7 @@ struct LibrarySectionView: View {
                 PlayerClearanceSpacer()
             }.padding(.top, Theme.Spacing.component)
         }
+        .loadingCrossfade(isLoading && isEmpty)
         .navigationTitle(section == .createdPlaylists ? account.provider.playlistSectionTitle : section.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

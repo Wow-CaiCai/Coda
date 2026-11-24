@@ -116,7 +116,7 @@ final class CarPlayContentStore {
         curatedFetchedAt = Date()
     }
 
-    // MARK: - Curated sub-categories (mirror App ExploreView's chips)
+    // MARK: - Curated sub-categories (mirror App's explore categories)
 
     /// Official playlists — backs the "Official" chip in the App's Curated tab.
     func fetchOfficialPlaylists(force: Bool = false) async {

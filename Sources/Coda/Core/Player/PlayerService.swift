@@ -129,6 +129,7 @@ final class PlayerService: ObservableObject {
     func setLyricsTiming(steps: Int) {
         guard let track = currentTrack else { return }
         lyricsTimingSteps = steps
+        scheduleLyricsResync()
         let key = "lyrics.timing.\(track.id)"
         if steps == 0 { UserDefaults.standard.removeObject(forKey: key) }
         else { UserDefaults.standard.set(steps, forKey: key) }
@@ -226,7 +227,6 @@ final class PlayerService: ObservableObject {
     @Published private(set) var lyricsSource: LyricsSource = .automatic
     @Published private(set) var resolvedLyricsSource: LyricsSource?
     @Published private(set) var lyricsSourceLoading = false
-    @Published var lyricsSourceError: String?
     private var lyricsRequestID = UUID()
     @Published var activePanel: RightPanel?
     @Published var showNowPlaying = false
@@ -277,6 +277,7 @@ final class PlayerService: ObservableObject {
         return t.isFinite ? t : progress
     }
     private var resolveGeneration = 0
+    private var lyricsResync: Task<Void, Never>?
     @Published private var trackResolution: (generation: Int, task: Task<Void, Never>)?
     /// True while the engine is paused by us (togglePlayPause/pause/
     /// interruption). When false, "resume" must re-issue play() instead —
@@ -694,6 +695,38 @@ final class PlayerService: ObservableObject {
         updateLyricsCursor(at: sample.position, playbackRate: sample.rate)
     }
 
+    /// After a user adjustment (progress, lyrics timing/source, audio quality),
+    /// wait until the deck is rendering again, then re-anchor the lyrics to its
+    /// media time. Follow-up checks only redraw when the lyric clock drifted.
+    private func scheduleLyricsResync() {
+        lyricsResync?.cancel()
+        lyricsResync = Task { @MainActor [weak self] in
+            let deadline = ContinuousClock.now + .seconds(20)
+            while ContinuousClock.now < deadline {
+                guard !Task.isCancelled, let self else { return }
+                if self.deckLoaded, !self.isBuffering, !self.isScrubbing { break }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            for (index, delay) in [0, 400, 1200, 3000].enumerated() {
+                if delay > 0 { try? await Task.sleep(for: .milliseconds(delay)) }
+                guard !Task.isCancelled, let self else { return }
+                self.resyncLyricsToPlayback(force: index == 0)
+            }
+        }
+    }
+
+    private func resyncLyricsToPlayback(force: Bool) {
+        guard deckLoaded, !isBuffering, !isScrubbing else { return }
+        let sample = engine.playbackSample(of: activeDeck)
+        guard sample.position.isFinite else { return }
+        let drift = abs(lyricsCursor.playbackTime - lyricsTimeOffset - sample.position)
+        updateLyricsCursor(at: sample.position, playbackRate: sample.rate)
+        if force || drift > 0.12 {
+            lyricsCursor.seekRevision &+= 1
+            NowPlayingManager.shared.updateElapsed(sample.position, rate: sample.rate)
+        }
+    }
+
     /// Restore the engine anchor after background suspension or window restoration.
     func refreshPlaybackPresentation() {
         sampleLyricsClock()
@@ -728,6 +761,7 @@ final class PlayerService: ObservableObject {
         // the re-arm, on the signature, and drops it if the seam really moved.
         let wasArmed = transitionArmed
         if wasArmed { disarmTransition(keepingPrerender: true) }
+        scheduleLyricsResync()
         progress = seconds
         updateLyricsCursor(at: seconds)
         lyricsCursor.seekRevision &+= 1
@@ -888,6 +922,7 @@ final class PlayerService: ObservableObject {
             else { engine.seek(deck: replacement, to: progress) }
             updateLyricsCursor(at: progress)
             lyricsCursor.seekRevision &+= 1
+            scheduleLyricsResync()
             NowPlayingManager.shared.updateMetadata(for: track, duration: fileDuration)
             NowPlayingManager.shared.updateElapsed(progress, rate: isPlaying ? 1 : 0)
             persistCurrentLyricsSidecar()
@@ -1411,7 +1446,11 @@ final class PlayerService: ObservableObject {
         var data: SongURLData?
         if track.platformSong?.source == .qishui {
             do { data = try await NeteaseAPI.songURL(ids: [track.id], level: settings.preferredPlaybackQuality.rawValue).first }
-            catch { onFailure?(error); return nil }
+            catch {
+                onFailure?(error)
+                // Without membership or rights, look for the song elsewhere.
+                guard (error as? QishuiError)?.invitesUnblock == true else { return nil }
+            }
         } else if isNetease || settings.alwaysHighestAudioQuality {
             data = try? await NeteaseAPI.preferredSongURL(id: track.id,
                 quality: settings.preferredPlaybackQuality, alwaysHighest: settings.alwaysHighestAudioQuality)
@@ -2985,13 +3024,14 @@ final class PlayerService: ObservableObject {
     }
 
     private func displayLyrics(_ response: LyricResponse) {
-        lyrics = LyricsParser.parse(response)
+        lyrics = LyricsParser.parse(response, track: currentTrack)
     }
 
     func selectLyricsSource(_ source: LyricsSource) async {
         guard let track = currentTrack else { return }
         source.save(for: track.id)
-        await loadLyrics(for: track, generation: resolveGeneration)
+        await loadLyrics(for: track, generation: resolveGeneration, userInitiated: true)
+        scheduleLyricsResync()
     }
 
     func loadCurrentLyricsIfNeeded() async {
@@ -2999,7 +3039,7 @@ final class PlayerService: ObservableObject {
         await loadLyrics(for: track, generation: resolveGeneration)
     }
 
-    private func loadLyrics(for track: Track, generation: Int) async {
+    private func loadLyrics(for track: Track, generation: Int, userInitiated: Bool = false) async {
         let scope = offlineAccountScope
         guard generation == resolveGeneration, currentTrack?.id == track.id else { return }
         let requestID = UUID()
@@ -3007,7 +3047,6 @@ final class PlayerService: ObservableObject {
         let source = LyricsSource.saved(for: track.id)
         if lyrics == nil { lyricsSource = source }
         lyricsSourceLoading = true
-        lyricsSourceError = nil
         defer { if lyricsRequestID == requestID { lyricsSourceLoading = false } }
         do {
             guard !usesOfflineQueue else { throw URLError(.notConnectedToInternet) }
@@ -3032,8 +3071,9 @@ final class PlayerService: ObservableObject {
                   currentTrack?.id == track.id else { return }
             if lyrics != nil { lyricsSource.save(for: track.id) }
             else { lyrics = ParsedLyrics() }
-            guard (error as? AlternativeLyricsAPI.Failure) != .noMatch else { return }
-            lyricsSourceError = "\(source.title)：\(error.localizedDescription)"
+            if let message = source.failureToast(for: error, userInitiated: userInitiated, keptLyrics: !(lyrics?.isEmpty ?? true)) {
+                ToastCenter.shared.show(message)
+            }
         }
     }
 
@@ -4228,7 +4268,6 @@ final class PlayerService: ObservableObject {
         audioQualityBadgeState = nil
         lyricsRequestID = UUID()
         lyrics = nil
-        lyricsSourceError = nil
         lyricsSourceLoading = false
         persistState()
         NowPlayingManager.shared.clear()

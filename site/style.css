@@ -117,8 +117,8 @@ code {
 .cta { display: flex; flex-wrap: wrap; gap: 12px; }
 .requirements { color: var(--muted); font-size: 14px; margin: 20px 0 0; }
 
-/* 三端叠放：Mac 在底层左上，iPad 在中间层右下，iPhone 在顶层最右下 */
-.hero-visual { position: relative; aspect-ratio: 100 / 70; }
+/* 三端叠放：Mac 在底层，iPad 在中间层，iPhone 在顶层；容器比例与 Mac 图一致，三台设备底部平齐 */
+.hero-visual { position: relative; aspect-ratio: 1702 / 979; }
 .hero-visual img { position: absolute; }
 .hero-mac {
   top: 0;
@@ -135,14 +135,14 @@ code {
 }
 .hero-phone {
   right: 2%;
-  bottom: -2%;
+  bottom: 0;
   width: 21%;
   z-index: 2;
   filter: drop-shadow(0 20px 30px rgba(0, 0, 0, 0.35));
 }
 @media (max-width: 900px) {
   .hero-mac { left: 0; }
-  .hero-phone { right: 0; bottom: 0; }
+  .hero-phone { right: 0; }
 }
 
 /* 平台条 */
@@ -327,6 +327,18 @@ code {
   filter: drop-shadow(0 30px 50px rgba(0, 0, 0, 0.35));
 }
 
+/* 多平台：宽屏文案在左、四台手机横排在右；窄屏上下堆叠 */
+.showcase-platforms .showcase-inner { grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 48px; }
+.showcase-visual-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.showcase-visual-grid img { width: 100%; filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.28)); }
+
 @media (max-width: 900px) {
   .showcase { padding: 80px 0; }
   .showcase-inner { grid-template-columns: 1fr; gap: 48px; text-align: center; }
@@ -334,31 +346,39 @@ code {
   .showcase-copy > p { margin-inline: auto; }
   .chips { justify-content: center; }
   .showcase-visual img { width: min(70%, 300px); }
+  .showcase-visual-grid img { width: 100%; }
+  .showcase-platforms .showcase-inner { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 600px) {
   .showcase-copy > p { font-size: 16px; }
+  .showcase-visual-grid { gap: 10px; }
   .chips li { font-size: 14px; padding: 6px 12px; }
 }
 
-/* 歌词 + 背景大模块：标题居中，下面是播放录屏的大 MacBook */
-/* 歌词板块：MacBook 在左、文字在右，与上一板块左右交替；左列更宽以放下大外壳 */
+/* 歌词板块：三台 iPhone 录屏在左、文字在右，与上一板块左右交替 */
 .showcase-lyrics .showcase-inner { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 48px; }
-.live-mac {
-  position: relative;
+.live-phones {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
   width: 100%;
-  margin-left: -4%;
-  aspect-ratio: 1702 / 979;
+  max-width: 600px;
+  margin: 0 auto;
 }
-/* 屏幕区域在外壳图中的位置：x=131 y=28 w=1440 h=899（外壳 1702×979） */
+.live-phone {
+  position: relative;
+  aspect-ratio: 752 / 1492;
+}
+/* 屏幕区域在外壳图中的位置：x=45 y=29 w=661 h=1434，圆角 97（外壳 752×1492） */
 .live-screen {
   position: absolute;
-  left: 7.697%;
-  top: 2.860%;
-  width: 84.606%;
-  height: 91.828%;
+  left: 5.984%;
+  top: 1.944%;
+  width: 87.899%;
+  height: 96.113%;
   object-fit: cover;
   background: #000;
-  border-radius: 1.11% 1.11% 0 0 / 1.78% 1.78% 0 0;
+  border-radius: 14.675% / 6.764%;
 }
 .live-frame {
   position: absolute;
@@ -366,9 +386,12 @@ code {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.28));
+  filter: drop-shadow(0 16px 28px rgba(0, 0, 0, 0.28));
 }
 @media (max-width: 900px) {
   .showcase-lyrics .showcase-inner { grid-template-columns: 1fr; gap: 48px; }
-  .live-mac { margin-left: 0; }
 }
+@media (max-width: 600px) {
+  .live-phones { gap: 10px; }
+}
+

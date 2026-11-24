@@ -194,10 +194,11 @@ struct HomeSongRecommendationLists: View {
             if model.isLoading || !model.hasCompletedLoad {
                 MusicLibraryLoadingView(rowsPerColumn: 3, scrollsHorizontally: true,
                                         showsHorizontalPanel: false,
-                                        horizontalInset: Theme.Layout.trackListInset)
+                                        horizontalInset: Theme.Layout.trackListInset,
+                                        fixedColumnWidth: Theme.Layout.homeSongColumnWidth)
             } else if !tracks.isEmpty {
                 MusicTrackPanel(tracks: tracks, scrollsHorizontally: true,
-                                horizontalRowLimit: 3, horizontalInset: Theme.Layout.trackListInset, showsHorizontalPanel: false,
+                                horizontalRowLimit: 3, horizontalInset: Theme.Layout.trackListInset, fixedColumnWidth: Theme.Layout.homeSongColumnWidth, showsHorizontalPanel: false,
                                 showsRowSeparators: false)
             } else {
                 recommendationContents(tracks: tracks, error: error, emptyText: emptyText, needsLogin: needsLogin)

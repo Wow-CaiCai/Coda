@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HomeDiscoverySections: View {
     @ObservedObject var model: HomeDiscoveryModel
-    let shelfWidth: CGFloat
     /// Song-row slots sit above the toplists; playlist and radio shelves stay below.
     let songRows: Bool
     @EnvironmentObject private var account: AccountStore
@@ -29,7 +28,8 @@ struct HomeDiscoverySections: View {
                     } else {
                         MusicLibraryLoadingView(rowsPerColumn: 3, scrollsHorizontally: true,
                                                 showsHorizontalPanel: false,
-                                                horizontalInset: Theme.Layout.trackListInset)
+                                                horizontalInset: Theme.Layout.trackListInset,
+                                        fixedColumnWidth: Theme.Layout.homeSongColumnWidth)
                     }
                 } else if let content = model.contents[slot], !content.isEmpty {
                     contentView(content, slot: slot)
@@ -64,23 +64,12 @@ struct HomeDiscoverySections: View {
                 .padding(.bottom, Theme.Spacing.control)
                 .padding(.horizontal, Theme.Layout.contentInset)
             MusicTrackPanel(tracks: songs, scrollsHorizontally: true,
-                            horizontalRowLimit: 3, horizontalInset: Theme.Layout.trackListInset,
+                            horizontalRowLimit: 3, horizontalInset: Theme.Layout.trackListInset, fixedColumnWidth: Theme.Layout.homeSongColumnWidth,
                             showsHorizontalPanel: false, showsRowSeparators: false)
         case .playlists(let playlists):
-            if slot == .radios, account.provider != .qq {
-                CardGrid {
-                    ForEach(playlists) { playlist in
-                        playlistCard(playlist, subtitle: playlist.copywriter ?? playlist.creator?.nickname)
-                    }
-                }
-                .padding(.horizontal, Theme.Layout.contentInset)
-            } else {
-                let cardWidth = Theme.Layout.fittedShelfCardSize(
-                    availableWidth: shelfWidth, leadingInset: Theme.Layout.contentInset)
-                HomeCoverShelf(items: playlists, cardWidth: cardWidth) { playlist in
-                    playlistCard(playlist, subtitle: slot == .radios ? playlist.copywriter ?? playlist.creator?.nickname : nil,
-                                 size: cardWidth)
-                }
+            HomeCoverShelf(items: playlists, cardWidth: HomeLayout.coverSize) { playlist in
+                playlistCard(playlist, subtitle: slot == .radios ? playlist.copywriter ?? playlist.creator?.nickname : nil,
+                             size: HomeLayout.coverSize)
             }
         }
     }
@@ -88,11 +77,12 @@ struct HomeDiscoverySections: View {
     private func playlistCard(_ playlist: PlaylistSummary, subtitle: String? = nil,
                               size: CGFloat = Theme.Layout.cardSize) -> some View {
         NavigationLink(value: Destination.playlist(playlist.id)) {
-            PlaylistCoverCard(playlist: playlist, subtitle: subtitle, size: size) {
+            PlaylistCoverCard(playlist: playlist, subtitle: subtitle, size: size,
+                              cornerRadius: HomeLayout.coverCornerRadius) {
                 Task { await play(playlist) }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.interactiveCard)
     }
 
     private func play(_ playlist: PlaylistSummary) async {

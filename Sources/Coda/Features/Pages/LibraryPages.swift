@@ -72,6 +72,7 @@ struct RecentsView: View {
         } footer: {
             PlayerClearanceSpacer()
         }
+        .loadingCrossfade(isLoading && records.isEmpty)
         .musicLibraryArtworkBackground(records.first?.song.album.picUrl)
         .musicLibraryNavigationTitle(String(localized: "最近播放"), enabled: trackLayout.usesPanel)
         #if os(iOS)
@@ -218,6 +219,7 @@ struct CloudView: View {
             }
             PlayerClearanceSpacer()
         }
+        .loadingCrossfade(isLoading && items.isEmpty)
         .musicLibraryArtworkBackground(tracks.first?.album.picUrl)
         .musicLibraryNavigationTitle(String(localized: "音乐云盘"), enabled: trackLayout.usesPanel)
         #if os(iOS)

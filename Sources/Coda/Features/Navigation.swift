@@ -88,7 +88,6 @@ private struct MainColumnPlayerBar: View {
 enum SidebarItem: Hashable {
     case downloaded
     case home
-    case explore
     case fm
     case search
     case account
@@ -125,6 +124,7 @@ enum Destination: Hashable {
     case cloud
     case search(String)
     case qqBrowse(QQMusicBrowseKind)
+    case exploreCategory(String)
 }
 
 extension Destination {
@@ -249,6 +249,8 @@ struct DestinationsModifier: ViewModifier {
             SearchView(query: query)
         case .qqBrowse(let kind):
             QQMusicBrowseView(kind: kind)
+        case .exploreCategory(let category):
+            ExploreCategoryView(category: category)
         }
     }
 }

@@ -22,7 +22,19 @@ struct MainWindow: View {
     @State private var viewportSize = SceneViewportSize()
     @State private var compactPageBackground: Color?
     #endif
+    #if os(macOS)
+    // Observe only the chrome flags. Every other PlayerService change (queue,
+    // buffering, lyrics, quality) would otherwise re-render the window and
+    // re-diff the whole hosted navigation tree.
+    @ObservedObject private var playerChrome = PlayerChromeState.shared
+    private var player: PlayerService { PlayerService.shared }
+    private var showNowPlayingBinding: Binding<Bool> {
+        Binding(get: { PlayerService.shared.showNowPlaying },
+                set: { PlayerService.shared.showNowPlaying = $0 })
+    }
+    #else
     @EnvironmentObject private var player: PlayerService
+    #endif
     @EnvironmentObject private var account: AccountStore
     @EnvironmentObject private var settings: SettingsManager
     @EnvironmentObject private var toasts: ToastCenter
@@ -164,6 +176,7 @@ struct MainWindow: View {
         #if os(macOS)
         .modifier(OfflinePlaybackAlert(player: player, onDownloads: { openDestination(.downloaded) }))
         .modifier(MeteredDownloadAlert())
+        .modifier(AddToPlaylistPresentation())
         #endif
         .environment(\.openLogin, { showLogin = true })
         .environment(\.openDestination, openDestination)
@@ -226,7 +239,7 @@ struct MainWindow: View {
             // Preserve the surface across Dock and Mission Control transitions.
             // Animation leaves observe visibility themselves; the navigation
             // and hosting trees must not rebuild when occlusion changes.
-                DesktopNowPlayingPresentation(isPresented: $player.showNowPlaying,
+                DesktopNowPlayingPresentation(isPresented: showNowPlayingBinding,
                     onDismissed: {
                         if let destination = destinationAfterPlayerDismissal {
                             destinationAfterPlayerDismissal = nil
@@ -237,18 +250,13 @@ struct MainWindow: View {
                         backgroundColorScheme: settings.appearance.colorScheme ?? colorScheme)
                         .environmentObject(artworkStore)
                         .background(ArrowCursorOverride())
+                        .modifier(ToastOverlay(topPadding: 12))
                 }
                 .ignoresSafeArea(.container)
         }
+        // iOS shows toasts once, from IOSMainWindow, which embeds this view.
+        .modifier(ToastOverlay(enabled: !player.showNowPlaying, topPadding: 12))
         #endif
-        .overlay(alignment: .top) {
-            if let toast = toasts.current {
-                ToastView(toast: toast)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, 12)
-            }
-        }
-        .animation(.spring(duration: 0.3), value: toasts.current)
     }
 
     @ViewBuilder
@@ -278,7 +286,6 @@ struct MainWindow: View {
             if compactLibraryVisible { return .library }
             switch selection {
             case .home: return .home
-            case .explore: return .explore
             case .search: return .search
             default: return .library
             }
@@ -287,7 +294,7 @@ struct MainWindow: View {
                 path = []
                 compactLibraryVisible = true
             } else {
-                selectSidebarItem(tab == .home ? .home : tab == .explore ? .explore : .search)
+                selectSidebarItem(tab == .home ? .home : .search)
             }
         })
     }
@@ -348,18 +355,10 @@ struct MainWindow: View {
                 .padding(.horizontal, Theme.Layout.FloatingChrome.horizontalMargin)
                 #if os(iOS)
                 .nowPlayingTransitionSource(in: compactPlayerNamespace)
+                #else
+                .modifier(NowPlayingZoomSourceReporter())
                 #endif
-            GeometryReader { proxy in
-                HStack(spacing: 12) {
-                    GlassTabBar(items: [
-                        .init(tab: .home, title: "推荐", icon: "house"),
-                        .init(tab: .explore, title: "精选", icon: "square.grid.2x2"),
-                        .init(tab: .library, title: "我的", icon: "person.crop.circle")
-                    ], selection: compactTab, onReselect: { _ in path = [] },
-                       expandedWidth: max(0, proxy.size.width - 76))
-                    LegacySearchTabButton(selection: compactTab, onReselect: { _ in path = [] })
-                }
-            }
+            GlassTabBar(items: IOSTab.barItems, selection: compactTab, onReselect: { _ in path = [] })
             .frame(height: Theme.Layout.FloatingChrome.tabBarHeight)
             .padding(.horizontal, Theme.Layout.FloatingChrome.horizontalMargin)
         }
@@ -901,6 +900,29 @@ struct ToastView: View {
     }
 }
 
+/// Shows the current toast at the top of a surface. The now-playing page is
+/// presented above the window root (a full-screen cover on iOS, an AppKit
+/// surface on macOS), so it hosts its own copy while the root hides theirs.
+struct ToastOverlay: ViewModifier {
+    @ObservedObject private var center = ToastCenter.shared
+    var enabled = true
+    var topPadding: CGFloat = 8
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            ZStack {
+                if enabled, let toast = center.current {
+                    ToastView(toast: toast)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, topPadding)
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(.spring(duration: 0.3), value: center.current)
+        }
+    }
+}
+
 /// The same page content can be the initial root or a native navigation destination.
 struct SidebarDestinationView: View {
     let item: SidebarItem
@@ -916,8 +938,6 @@ struct SidebarDestinationView: View {
             DownloadedMusicView()
         case .home:
             HomeView()
-        case .explore:
-            ExploreView()
         case .fm:
             FMView()
         case .account:
@@ -926,7 +946,7 @@ struct SidebarDestinationView: View {
             SettingsView()
                 .navigationTitle("设置")
         case .search:
-            // Search lives in the detail column on both Mac and iPad.
+            // 探索 (search plus the 精选 shelves) lives in the detail column on both Mac and iPad.
             SearchView(query: "", focusRequested: searchFocusRequested).id(account.sessionRevision)
         case .likedSongs:
             if let playlist = account.likedSongsPlaylist {

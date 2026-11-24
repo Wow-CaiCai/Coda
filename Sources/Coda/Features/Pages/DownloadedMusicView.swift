@@ -69,6 +69,7 @@ struct DownloadedMusicView: View {
         } footer: {
             PlayerClearanceSpacer()
         }
+        .loadingCrossfade(!downloads.isReady && downloads.errorMessage == nil)
         // NavigationStack keeps its previous page behind this destination.
         // Give the music page a surface so transparent scroll content cannot
         // show the previous list through a saved-collection page.

@@ -3,7 +3,7 @@
 // 用法：
 //   swift Scripts/make-loop-video.swift <输入.mov> <输出.mp4> <输出宽度> <首尾淡入淡出秒数> <开头裁掉秒数> [封面.jpg]
 // 例如：
-//   swift Scripts/make-loop-video.swift docs/assets/recordings/mac-player-raw.mov \
+//   swift Scripts/make-loop-video.swift docs/assets/recordings/mac/player-raw.mov \
 //     site/assets/video/mac-player.mp4 1440 1.0 0.3 site/assets/video/mac-player.jpg
 //
 // 做法：开头淡入、结尾淡出到黑色，循环点像屏幕眨一下；不把首尾画面叠在一起，

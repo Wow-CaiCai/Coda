@@ -865,7 +865,7 @@ struct QishuiMusicTests {
         #expect(query.neteaseID == nil)
         // Every other source is excluded, so nothing may be tried — Qishui least of all.
         let result = await UnblockResolver.resolve(track, quality: .exhigh,
-                                                   excluding: [.pyncmd, .netease, .qq, .kugou])
+                                                   excluding: [.pyncmd, .lxMusic, .netease, .qq, .kugou])
         #expect(result.source == nil && result.attemptedSources.isEmpty)
     }
 

@@ -18,9 +18,17 @@ struct NowPlayingFluidBackground: View {
     @ObservedObject private var visibility = MainWindowVisibility.shared
 
     private var allowsAnimation: Bool {
+        #if os(iOS)
+        // The native view suspends on didEnterBackground and resumes on
+        // didBecomeActive itself. Inside the pre-iOS 18 cover, iPadOS 16 can
+        // leave scenePhase at `.background` after the player is shown, which
+        // stopped the artwork motion.
+        return true
+        #else
         // A visible Mac window keeps moving when another app takes focus;
         // occlusion and miniaturising are covered by `visibility`.
         return scenePhase != .background
+        #endif
     }
 
     var body: some View {
@@ -445,6 +453,8 @@ final class FluidBackgroundNativeView: PlatformView {
             name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(resumeRendering),
             name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(rotationDidEnd),
+            name: CoverRotation.didEnd, object: nil)
         #endif
         target.view = self
         initialization = Task { [weak self] in
@@ -492,6 +502,8 @@ final class FluidBackgroundNativeView: PlatformView {
         updateLink()
         drawFrame()
     }
+
+    @objc private func rotationDidEnd() { layoutSurface() }
     #endif
 
     func update(artwork: PlatformImage?, artworkKey: String? = nil, colors: ArtworkColors, running: Bool,
@@ -562,6 +574,12 @@ final class FluidBackgroundNativeView: PlatformView {
         // Reassigning drawableSize on every SwiftUI layout invalidates drawable
         // storage even when a slide changes only the position of the player.
         guard surface.drawableSize != size else { return }
+        #if os(iOS)
+        // A new drawable stays black until its frame is presented. While the
+        // window turns, keep the current frame stretched to the new bounds and
+        // resize once the rotation ends.
+        if CoverRotation.isActive, current != nil, !surface.isHidden { return }
+        #endif
         surface.drawableSize = size
         drawFrame()
     }

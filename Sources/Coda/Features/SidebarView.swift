@@ -18,14 +18,19 @@ struct SidebarView: View {
     @ScaledMetric(relativeTo: .title2) private var sectionTextSize: CGFloat = 20
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
+    @State private var showAccountSwitcher = false
+    @State private var isHoveringIdentity = false
+    @State private var gearTurns: Double = 0
+    @Namespace private var selectionHighlight
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @ViewBuilder
     private var sections: some View {
         Group {
             SidebarSection {
                 row(.home, title: "推荐", icon: "house.fill")
-                row(.explore, title: "精选", icon: "square.grid.2x2.fill")
-                row(.search, title: "搜索", icon: "magnifyingglass")
+                // One 探索 entry, as in the tab bar: search with the 精选 shelves under it.
+                row(.search, title: "探索", icon: "magnifyingglass")
                 row(.account, title: "账户", icon: "person.crop.circle")
             } header: {
                 sectionTitle("音乐")
@@ -62,7 +67,7 @@ struct SidebarView: View {
                 if !account.createdPlaylists.isEmpty || account.provider.supports(.playlistCreation) {
                     SidebarSection {
                         ForEach(account.createdPlaylists) { playlist in
-                            playlistRow(playlist)
+                            playlistRow(playlist).transition(playlistTransition)
                         }
                     } header: {
                         HStack(spacing: 4) {
@@ -82,19 +87,28 @@ struct SidebarView: View {
                             .disabled(!account.provider.supports(.playlistCreation))
                         }
                     }
+                    .modifier(PlaylistEditAnimation(ids: account.createdPlaylists.map(\.id), owner: libraryOwner))
                 }
 
                 if !account.subscribedPlaylists.isEmpty {
                     SidebarSection {
                         ForEach(account.subscribedPlaylists) { playlist in
-                            playlistRow(playlist)
+                            playlistRow(playlist).transition(playlistTransition)
                         }
                     } header: {
                         sectionTitle("收藏的歌单")
                     }
+                    .modifier(PlaylistEditAnimation(ids: account.subscribedPlaylists.map(\.id), owner: libraryOwner))
                 }
             }
         }
+    }
+
+    /// Whose library the sidebar shows; playlist edits animate only within one owner.
+    private var libraryOwner: String { "\(account.provider.rawValue)|\(accountManager.currentID ?? "guest")" }
+
+    private var playlistTransition: AnyTransition {
+        reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top))
     }
 
     var body: some View {
@@ -113,6 +127,8 @@ struct SidebarView: View {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     sections
                 }
+                // The selection highlight slides between rows (matchedGeometryEffect in SidebarRowStyle).
+                .animation(reduceMotion ? nil : AppAnimation.snappy, value: selection)
                 .padding(.horizontal, SidebarLayout.rowInset)
                 .padding(.top, 4)
                 .padding(.bottom, 16)
@@ -147,39 +163,79 @@ struct SidebarView: View {
     }
 
     /// Platforms follow accounts: switching the account switches the platform.
+    /// A popover rather than a Menu, so entries can show avatars and status dots.
     private var platformMenu: some View {
-        Menu {
-            ForEach(accountManager.accounts) { item in
-                Button { selectAccount(item) } label: {
-                    if accountManager.currentID == item.id {
-                        Label("\(item.nickname) · \(item.provider.name)", systemImage: "checkmark")
-                    } else {
-                        Text("\(item.nickname) · \(item.provider.name)")
-                    }
-                }
+        Button { showAccountSwitcher = true } label: {
+            ZStack(alignment: .leading) {
+                identityRow(currentIdentity, showsSpinner: accountManager.isSwitching, showsChevron: true)
+                    .id(libraryOwner)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.95, anchor: .leading)))
             }
-            // Platforms without any signed-in account appear inline as guest entries.
-            ForEach(guestProviders) { provider in
-                Button { browseAsGuest(provider) } label: {
-                    if accountManager.isBrowsingAsGuest(provider) {
-                        Label("游客 · \(provider.name)", systemImage: "checkmark")
-                    } else {
-                        Text("游客 · \(provider.name)")
-                    }
-                }
-            }
-        } label: {
-            platformMenuLabel
+            .animation(reduceMotion ? AppAnimation.quick : AppAnimation.standard, value: libraryOwner)
+                .frame(minHeight: SidebarLayout.hitSize)
+                .contentShape(Rectangle())
+                .accessibilityElement(children: .ignore)
         }
-        #if os(macOS)
-        .menuStyle(.button)
-        .menuIndicator(.hidden)
-        #endif
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(reduceMotion ? nil : AppAnimation.quick) { isHoveringIdentity = hovering }
+        }
         .disabled(accountManager.isSwitching)
         .accessibilityLabel("切换账号")
-        .accessibilityValue(Text(account.provider.name))
+        .accessibilityValue(Text(currentIdentity.accessibilityText))
         .accessibilityIdentifier("sidebarPlatformMenu")
+        .popover(isPresented: $showAccountSwitcher, arrowEdge: .bottom) { accountSwitcher }
+        .task(id: "\(accountManager.currentID ?? "guest")|\(currentAccount?.credentials.hashValue ?? 0)") {
+            try? accountManager.rememberCurrent()
+            if let current = currentAccount { await accountManager.refreshStatus(of: current) }
+        }
+    }
+
+    private var accountSwitcher: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(accountManager.accounts) { item in
+                    switcherRow(identity(for: item), isCurrent: accountManager.currentID == item.id) { selectAccount(item) }
+                }
+                // Platforms without any signed-in account appear inline as guest entries.
+                ForEach(guestProviders) { provider in
+                    switcherRow(.guest(provider), isCurrent: accountManager.isBrowsingAsGuest(provider)) { browseAsGuest(provider) }
+                }
+            }
+            .padding(6)
+        }
+        .frame(width: 300)
+        .frame(maxHeight: 460)
+        .fixedSize(horizontal: false, vertical: true)
+        .tint(Theme.accent)
+        .task { await accountManager.refreshMemberships() }
+        .modifier(PopoverOnCompact())
+    }
+
+    private func switcherRow(_ identity: SidebarIdentity, isCurrent: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            showAccountSwitcher = false
+            guard !isCurrent else { return }
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                identityRow(identity, showsSpinner: false)
+                Spacer(minLength: 0)
+                if isCurrent {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SwitcherRowButtonStyle(isCurrent: isCurrent))
+        .disabled(accountManager.isSwitching)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(identity.accessibilityText)
+        .accessibilityAddTraits(isCurrent ? [.isSelected] : [])
     }
 
     private var guestProviders: [MusicProvider] {
@@ -187,37 +243,100 @@ struct SidebarView: View {
         return MusicProvider.allCases.filter { !signedIn.contains($0) || accountManager.isBrowsingAsGuest($0) }
     }
 
-    private var platformMenuLabel: some View {
-        HStack(spacing: 10) {
-            appLogo
-                .resizable()
-                .scaledToFit()
-                .frame(width: 32, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .accessibilityHidden(true)
-            HStack(spacing: 5) {
-                Text(account.provider.name)
-                    .font(.system(size: identityTextSize, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
+    private var currentAccount: MusicAccount? {
+        guard let id = accountManager.currentID else { return nil }
+        return accountManager.accounts.first { $0.id == id }
+    }
 
-                Group {
-                    if accountManager.isSwitching {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.secondary)
+    private var currentIdentity: SidebarIdentity {
+        guard account.isLoggedIn else { return .guest(account.provider) }
+        if let item = currentAccount { return identity(for: item) }
+        // Signed in but not saved to the account list yet.
+        return SidebarIdentity(provider: account.provider, isGuest: false,
+                               nickname: account.profile?.nickname ?? "", avatarURL: account.profile?.avatarUrl,
+                               validity: .unknown, membership: nil, isMember: false)
+    }
+
+    private func identity(for item: MusicAccount) -> SidebarIdentity {
+        SidebarIdentity(provider: item.provider, isGuest: false, nickname: item.nickname, avatarURL: item.avatarURL,
+                        validity: accountManager.validity(for: item),
+                        membership: accountManager.membershipTitle(for: item),
+                        isMember: item.membership?.membership.isMember == true)
+    }
+
+    /// Mirrors the settings account card, laid out horizontally:
+    /// avatar, then platform with validity dot, then nickname · membership.
+    private func identityRow(_ identity: SidebarIdentity, showsSpinner: Bool, showsChevron: Bool = false) -> some View {
+        HStack(spacing: 10) {
+            sidebarAvatar(identity)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(identity.provider.name)
+                        .font(.system(size: identityTextSize, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
+                    Group {
+                        if showsSpinner {
+                            ProgressView().controlSize(.mini)
+                        } else if !identity.isGuest {
+                            AccountValidityBadge(status: identity.validity)
+                        }
+                    }
+                    .frame(height: 12)
+                    if showsChevron {
+                        // Same arrow and hover nudge as the main content's section headers.
+                        DisclosureChevron()
+                            .rotationEffect(.degrees(showAccountSwitcher ? 90 : 0))
+                            .offset(x: isHoveringIdentity && !showAccountSwitcher ? 2 : 0)
+                            .animation(reduceMotion ? nil : AppAnimation.snappy, value: showAccountSwitcher)
                     }
                 }
-                .frame(width: 16, height: 16)
-                .accessibilityHidden(true)
+                HStack(spacing: 0) {
+                    if identity.isGuest {
+                        Text("游客").foregroundStyle(.secondary).lineLimit(1)
+                    } else {
+                        Text(identity.nickname)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if let membership = identity.membership {
+                            Text(" · ").foregroundStyle(.tertiary)
+                            Text(membership)
+                                .foregroundStyle(identity.isMember ? Theme.accent : .secondary)
+                                .lineLimit(1)
+                                .layoutPriority(1)
+                        }
+                    }
+                }
+                .font(.caption)
             }
         }
-        .frame(minHeight: SidebarLayout.hitSize)
-        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func sidebarAvatar(_ identity: SidebarIdentity) -> some View {
+        if identity.isGuest {
+            ZStack {
+                Circle().strokeBorder(.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                Image(systemName: "person.fill")
+                    .font(.system(size: 17))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(width: 40, height: 40)
+        } else {
+            CachedAsyncImage(url: identity.avatarURL.flatMap { $0.isEmpty ? nil : URL(string: $0) }) {
+                ZStack {
+                    Circle().fill(.quaternary.opacity(0.5))
+                    Text(String(identity.nickname.prefix(1)))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 40, height: 40)
+            .clipShape(Circle())
+        }
     }
 
     private func browseAsGuest(_ provider: MusicProvider) {
@@ -240,16 +359,11 @@ struct SidebarView: View {
         }
     }
 
-    private var appLogo: Image {
-        #if os(macOS)
-        Image(nsImage: NSApplication.shared.applicationIconImage)
-        #else
-        Image("CodaLogo")
-        #endif
-    }
-
     private var settingsButton: some View {
-        Button { selection = .settings } label: { settingsIcon }
+        Button {
+            selection = .settings
+            if !reduceMotion { gearTurns += 1 }
+        } label: { settingsIcon }
         .buttonStyle(SidebarSettingsButtonStyle())
         .tint(Theme.accent)
         .accessibilityLabel("设置")
@@ -259,6 +373,9 @@ struct SidebarView: View {
     private var settingsIcon: some View {
         Image(systemName: "gearshape")
             .font(.system(size: 16))
+            // Half a turn lands the symmetric gear back on its resting outline.
+            .rotationEffect(.degrees(gearTurns * 180))
+            .animation(.spring(response: 0.55, dampingFraction: 0.8), value: gearTurns)
             .frame(width: SidebarLayout.hitSize, height: 56)
             .contentShape(Rectangle())
     }
@@ -271,7 +388,7 @@ struct SidebarView: View {
     }
 
     private func row(_ item: SidebarItem, title: LocalizedStringKey, icon: String) -> some View {
-        SidebarRow(title: Text(title), iconSize: 22, isSelected: selection == item) {
+        SidebarRow(title: Text(title), iconSize: 22, isSelected: selection == item, highlight: selectionHighlight) {
             selection = item
             if item == .search { onSearchSelected() }
         } icon: {
@@ -284,7 +401,7 @@ struct SidebarView: View {
 
     private func playlistRow(_ playlist: PlaylistSummary) -> some View {
         let iconSize: CGFloat = 24
-        return SidebarRow(title: Text(playlist.name), iconSize: iconSize, isSelected: selection == .playlist(playlist.id)) {
+        return SidebarRow(title: Text(playlist.name), iconSize: iconSize, isSelected: selection == .playlist(playlist.id), highlight: selectionHighlight) {
             selection = .playlist(playlist.id)
         } icon: {
             PlaylistArtwork(playlist: playlist, pixelSize: 64, animated: false)
@@ -366,17 +483,26 @@ private struct SidebarRow<Icon: View>: View {
     let title: Text
     let iconSize: CGFloat
     let isSelected: Bool
+    let highlight: Namespace.ID
     let action: () -> Void
     @ViewBuilder var icon: () -> Icon
 
     @ScaledMetric(relativeTo: .body) private var textSize: CGFloat = 16
     @ScaledMetric(relativeTo: .body) private var iconScale: CGFloat = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isHovered = false
+    @State private var iconBounce: CGFloat = 1
+    @State private var bounceTask: Task<Void, Never>?
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            bounceIcon()
+            action()
+        } label: {
             HStack(spacing: SidebarLayout.rowPadding) {
                 icon()
                     .frame(width: iconSize * iconScale, height: iconSize * iconScale)
+                    .scaleEffect(iconBounce)
                     .accessibilityHidden(true)
                 title
                     .font(.system(size: textSize))
@@ -388,20 +514,69 @@ private struct SidebarRow<Icon: View>: View {
             .frame(maxWidth: .infinity, minHeight: SidebarLayout.hitSize, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(SidebarRowStyle(isSelected: isSelected))
+        .buttonStyle(SidebarRowStyle(isSelected: isSelected, isHovered: isHovered, highlight: highlight, reduceMotion: reduceMotion))
+        // Pointer hover on Mac and on iPad with a trackpad or mouse.
+        .onHover { hovering in
+            withAnimation(reduceMotion ? nil : AppAnimation.quick) { isHovered = hovering }
+        }
+        .onDisappear { bounceTask?.cancel(); iconBounce = 1 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// One pop on tap only; selection changes from elsewhere never bounce.
+    private func bounceIcon() {
+        guard !reduceMotion else { return }
+        bounceTask?.cancel()
+        bounceTask = Task { @MainActor in
+            withAnimation(.easeOut(duration: 0.1)) { iconBounce = 1.15 }
+            do { try await Task.sleep(nanoseconds: 100_000_000) } catch { iconBounce = 1; return }
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) { iconBounce = 1 }
+        }
     }
 }
 
 private struct SidebarRowStyle: ButtonStyle {
     let isSelected: Bool
+    let isHovered: Bool
+    let highlight: Namespace.ID
+    let reduceMotion: Bool
 
     func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
         configuration.label
             .background {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.primary.opacity(configuration.isPressed ? 0.15 : isSelected ? 0.10 : 0))
+                ZStack {
+                    if isSelected {
+                        // One highlight shared by all rows, so it slides to the new selection.
+                        shape.fill(Color.primary.opacity(0.10))
+                            .matchedGeometryEffect(id: "sidebarSelection", in: highlight)
+                    }
+                    shape.fill(Color.primary.opacity(configuration.isPressed ? 0.08 : isHovered && !isSelected ? 0.05 : 0))
+                }
             }
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .animation(reduceMotion ? nil : AppAnimation.snappy, value: configuration.isPressed)
+    }
+}
+
+/// Animates small playlist edits (create, delete, unsubscribe) only, so a first
+/// load or an account switch does not slide every row in.
+private struct PlaylistEditAnimation<ID: Hashable>: ViewModifier {
+    let ids: [ID]
+    let owner: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var previous: (owner: String, ids: [ID])?
+
+    func body(content: Content) -> some View {
+        content
+            .animation(isEdit ? (reduceMotion ? AppAnimation.quick : AppAnimation.standard) : nil, value: ids)
+            .onAppear { previous = (owner, ids) }
+            .onChange(of: ids) { previous = (owner, $0) }
+    }
+
+    private var isEdit: Bool {
+        guard let previous, previous.owner == owner else { return false }
+        return (1...2).contains(Set(previous.ids).symmetricDifference(ids).count)
     }
 }
 
@@ -654,8 +829,14 @@ struct AccountDetailsView: View {
         }
     }
 
-    @ViewBuilder
+    /// Fades between periods and between the spinner and the loaded ranking.
     private var rankingSongs: some View {
+        rankingSongsContent
+            .contentCrossfade(on: "\(week)|\(qqRankPeriod)|\(isLoadingRecords)|\(recordError != nil)|\(records.isEmpty)")
+    }
+
+    @ViewBuilder
+    private var rankingSongsContent: some View {
         if isLoadingRecords {
             ProgressView("正在加载排行")
                 .frame(maxWidth: .infinity, minHeight: 220)
@@ -814,5 +995,51 @@ struct AccountDetailsView: View {
             recordError = "听歌排行加载失败，请重试"
             isLoadingRecords = false
         }
+    }
+}
+
+/// What the sidebar shows for one account or guest platform.
+private struct SidebarIdentity {
+    let provider: MusicProvider
+    let isGuest: Bool
+    let nickname: String
+    let avatarURL: String?
+    let validity: MusicAccountValidity
+    let membership: String?
+    let isMember: Bool
+
+    static func guest(_ provider: MusicProvider) -> SidebarIdentity {
+        SidebarIdentity(provider: provider, isGuest: true, nickname: "", avatarURL: nil,
+                        validity: .unknown, membership: nil, isMember: false)
+    }
+
+    var accessibilityText: String {
+        if isGuest { return "\(provider.name)，游客" }
+        return [provider.name, nickname, validity.rawValue, membership].compactMap { $0 }.joined(separator: "，")
+    }
+}
+
+private struct SwitcherRowButtonStyle: ButtonStyle {
+    let isCurrent: Bool
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : (isHovered || isCurrent) ? 0.06 : 0))
+            )
+            .onHover { isHovered = $0 }
+    }
+}
+
+/// Keeps the account switcher a popover in compact widths (iPad Slide Over/Split View).
+private struct PopoverOnCompact: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 16.4, *) { content.presentationCompactAdaptation(.popover) } else { content }
+        #else
+        content
+        #endif
     }
 }

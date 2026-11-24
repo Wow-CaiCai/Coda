@@ -26,14 +26,20 @@ final class MusicAccountManager: ObservableObject {
     @Published private(set) var refreshingMembershipIDs: Set<String> = []
     @Published private(set) var failedMembershipIDs: Set<String> = []
     @Published private var validityResults: [String: (credentials: [String: String], status: MusicAccountValidity)] = [:]
+    /// Checks in flight, keyed by account. `.checking` is reported only while
+    /// one runs: a stored `.checking` marker left by a cancelled check kept the
+    /// sidebar badge's 30 Hz pulse (and a window layout per frame) running forever.
+    @Published private var validityChecks: [String: UUID] = [:]
 
     func validity(for item: MusicAccount) -> MusicAccountValidity {
-        guard let result = validityResults[item.id], result.credentials == item.credentials else { return .checking }
-        return result.status
+        if let result = validityResults[item.id], result.credentials == item.credentials { return result.status }
+        return validityChecks[item.id] == nil ? .unknown : .checking
     }
 
     private func checkValidity(_ item: MusicAccount) async {
-        validityResults[item.id] = (item.credentials, .checking)
+        let check = UUID()
+        validityChecks[item.id] = check
+        defer { if validityChecks[item.id] == check { validityChecks[item.id] = nil } }
         let status: MusicAccountValidity
         do {
             switch item.provider {
@@ -57,9 +63,12 @@ final class MusicAccountManager: ObservableObject {
             }
         } catch QishuiError.expiredLogin { status = .invalid }
         catch NeteaseAPIError.needLogin { status = .invalid }
+        catch is CancellationError { return }
+        catch let error as URLError where error.code == .cancelled { return }
         catch { status = .unknown }
-        guard !Task.isCancelled,
-              accounts.contains(where: { $0.id == item.id && $0.credentials == item.credentials }) else { return }
+        // A finished answer stays valid for these credentials even if the
+        // caller was cancelled meanwhile; only a changed account discards it.
+        guard accounts.contains(where: { $0.id == item.id && $0.credentials == item.credentials }) else { return }
         validityResults[item.id] = (item.credentials, status)
     }
 
@@ -171,43 +180,55 @@ final class MusicAccountManager: ObservableObject {
     func refreshMemberships() async {
         for item in accounts {
             guard !Task.isCancelled else { return }
-            guard refreshingMembershipIDs.insert(item.id).inserted else { continue }
-            defer { refreshingMembershipIDs.remove(item.id) }
-            await checkValidity(item)
+            await refreshStatus(of: item)
+        }
+    }
+
+    /// Refreshes one saved account's login validity and membership.
+    func refreshStatus(of item: MusicAccount) async {
+        guard refreshingMembershipIDs.insert(item.id).inserted else { return }
+        defer { refreshingMembershipIDs.remove(item.id) }
+        await checkValidity(item)
+        guard !Task.isCancelled else { return }
+        do {
+            let membership: MusicMembership
+            switch item.provider {
+            case .netease:
+                let client = NeteaseClient(configuration: .ephemeral, persistsCookies: false)
+                client.setCookies(item.credentials)
+                let data = try await client.eapi("/music-vip-membership/client/vip/info", ["userId": item.userID])
+                let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+                membership = MusicMembership.netease(json)
+            case .qq:
+                let auth = QQMusicAuth(persistsSession: false)
+                auth.importCookies(item.credentials, nickname: item.nickname)
+                membership = try await auth.membershipStatus()
+            case .qishui:
+                membership = try await QishuiMusicAPI.shared.membership(credentials: item.credentials)
+            case .kugou:
+                membership = try await KugouMusicAPI.shared.membershipStatus(credentials: item.credentials)
+            }
+            guard !Task.isCancelled,
+                  let index = accounts.firstIndex(where: { $0.id == item.id && $0.credentials == item.credentials }) else { return }
+            guard membership != .unknown else { failedMembershipIDs.insert(item.id); return }
+            var next = accounts
+            next[index].membership = .init(membership: membership, checkedAt: Date())
+            try persist(next)
+            failedMembershipIDs.remove(item.id)
+        } catch is CancellationError { return }
+        catch {
             guard !Task.isCancelled else { return }
-            do {
-                let membership: MusicMembership
-                switch item.provider {
-                case .netease:
-                    let client = NeteaseClient(configuration: .ephemeral, persistsCookies: false)
-                    client.setCookies(item.credentials)
-                    let data = try await client.eapi("/music-vip-membership/client/vip/info", ["userId": item.userID])
-                    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
-                    membership = MusicMembership.netease(json)
-                case .qq:
-                    let auth = QQMusicAuth(persistsSession: false)
-                    auth.importCookies(item.credentials, nickname: item.nickname)
-                    membership = try await auth.membershipStatus()
-                case .qishui:
-                    membership = try await QishuiMusicAPI.shared.membership(credentials: item.credentials)
-                case .kugou:
-                    membership = try await KugouMusicAPI.shared.membershipStatus(credentials: item.credentials)
-                }
-                guard !Task.isCancelled,
-                      let index = accounts.firstIndex(where: { $0.id == item.id && $0.credentials == item.credentials }) else { continue }
-                guard membership != .unknown else { failedMembershipIDs.insert(item.id); continue }
-                var next = accounts
-                next[index].membership = .init(membership: membership, checkedAt: Date())
-                try persist(next)
-                failedMembershipIDs.remove(item.id)
-            } catch is CancellationError { return }
-            catch {
-                guard !Task.isCancelled else { return }
-                if accounts.contains(where: { $0.id == item.id && $0.credentials == item.credentials }) {
-                    failedMembershipIDs.insert(item.id)
-                }
+            if accounts.contains(where: { $0.id == item.id && $0.credentials == item.credentials }) {
+                failedMembershipIDs.insert(item.id)
             }
         }
+    }
+
+    /// Membership line shown under an account in settings and the sidebar.
+    func membershipTitle(for item: MusicAccount) -> String {
+        if refreshingMembershipIDs.contains(item.id), item.membership == nil { return "查询中…" }
+        let title = item.membership?.membership.rawValue ?? MusicMembership.unknown.rawValue
+        return failedMembershipIDs.contains(item.id) && item.membership != nil ? title + "（待更新）" : title
     }
     func selectProvider(_ provider: MusicProvider) async throws {
         guard !isSwitching, provider != AccountStore.shared.provider else { return }

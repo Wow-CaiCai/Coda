@@ -111,7 +111,7 @@ struct IOSNowPlayingPresentation<Content: View>: View {
                         .padding(.top, isPad ? (proxy.size.height > proxy.size.width ? min(32, max(24, proxy.size.height * 0.04)) : NowPlayingSplitGeometry.verticalInset(height: proxy.size.height)) - 1 : 0)
                         .simultaneousGesture(
                             TapGesture().onEnded { dismiss() },
-                            including: backgroundIsExternal ? .all : .none
+                            including: handleTapDismisses ? .all : .none
                         )
                         .accessibilityLabel("下拉关闭播放页")
                         .accessibilityAction(named: Text("关闭播放页")) { dismiss() }
@@ -120,6 +120,13 @@ struct IOSNowPlayingPresentation<Content: View>: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .ignoresSafeArea(.keyboard, edges: UIDevice.current.userInterfaceIdiom == .pad ? .bottom : [])
+    }
+
+    /// The zoom presentation (iOS 18+) closes by its own drag; before it the
+    /// cover has no system gesture, so a tap on the handle closes it too.
+    private var handleTapDismisses: Bool {
+        if #available(iOS 18.0, *) { return backgroundIsExternal }
+        return true
     }
 
     private var indicator: some View {

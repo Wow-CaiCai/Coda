@@ -49,9 +49,15 @@ private struct SkeletonShimmer: View {
                                startPoint: .leading, endPoint: .trailing)
                     .frame(width: geo.size.width * 0.6)
                     .offset(x: sweeping ? geo.size.width : -geo.size.width * 0.6)
+                    // Scope the repeat to the sweep. A `withAnimation` in onAppear
+                    // shares its transaction with the update that inserted the
+                    // placeholder, and iPadOS 16 then loops the surrounding page's
+                    // layout change forever (the whole home page drifting).
+                    .animation(.linear(duration: 1.5).repeatForever(autoreverses: false), value: sweeping)
             }
             .onAppear {
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) { sweeping = true }
+                // Start on the next run loop, outside the inserting transaction.
+                DispatchQueue.main.async { sweeping = true }
             }
             .allowsHitTesting(false)
         }
@@ -124,7 +130,7 @@ struct SectionHeader: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .onHover { hovering in
+                .scrollAwareHover { hovering in
                     withAnimation(AppAnimation.quick) { isHovering = hovering }
                 }
             } else {
@@ -453,5 +459,31 @@ struct CollectionStarIcon: View {
                 .frame(width: 24, height: 24)
 
         }
+    }
+}
+
+// MARK: - Content cross-fade
+
+/// Animates the branch swaps that `value` drives; SwiftUI's default
+/// insertion/removal transition is a fade.
+struct ContentCrossfade<Value: Equatable>: ViewModifier {
+    let value: Value
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content.animation(reduceMotion ? nil : AppAnimation.standard, value: value)
+    }
+}
+
+extension View {
+    /// Cross-fades a page's loading skeleton into its content. Pass the exact
+    /// condition that shows the skeleton, so a refresh of a filled page stays still.
+    func loadingCrossfade<Value: Equatable>(_ showsSkeleton: Value) -> some View {
+        modifier(ContentCrossfade(value: showsSkeleton))
+    }
+
+    /// Cross-fades content when a segmented control or tab switches it.
+    func contentCrossfade<Value: Equatable>(on value: Value) -> some View {
+        modifier(ContentCrossfade(value: value))
     }
 }

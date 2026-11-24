@@ -188,6 +188,7 @@ struct PlaylistDetailView: View {
             }
             .id("playlistTop")
         }
+        .loadingCrossfade(model.isLoading)
         .modifier(DetailArtworkBackground(artworkURL: displayedDetail?.coverURL))
         .musicLibraryNavigationTitle(displayedDetail?.name ?? String(localized: "歌单"), enabled: true)
         #if os(iOS)

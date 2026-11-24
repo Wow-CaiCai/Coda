@@ -286,7 +286,9 @@ struct SearchView: View {
         .onChange(of: searchText) { newValue in
             model.setQuery(newValue)
         }
-        .appRootNavigationTitle(searchText.isEmpty ? String(localized: "搜索") : String(localized: "搜索：\(searchText)"))
+        .appRootNavigationTitle(searchText.isEmpty
+                                ? String(localized: "探索")
+                                : String(localized: "搜索：\(searchText)"))
         .task(id: "\(model.tab.rawValue):\(searchText)") {
             do { try await Task.sleep(nanoseconds: 400_000_000) } catch { return }
             await model.load(tab: model.tab)
@@ -313,8 +315,8 @@ struct SearchView: View {
     @ViewBuilder
     private var searchPage: some View {
         if phoneLayout.isEnabled {
+            // The field scrolls with the page instead of living in the tab bar.
             searchContent
-                .searchable(text: $searchText, prompt: "搜索歌曲、歌手、专辑、歌单")
         } else {
             #if os(iOS)
             searchContent
@@ -342,6 +344,7 @@ struct SearchView: View {
                 .textInputAutocapitalization(.never)
                 #endif
                 .autocorrectionDisabled()
+                .onSubmit { searchFocused = false }
                 .accessibilityLabel("搜索歌曲、歌手、专辑、歌单")
             if !searchText.isEmpty {
                 Button {
@@ -382,9 +385,15 @@ struct SearchView: View {
         ScenePreservingScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.section) {
                 #if os(iOS)
-                if UIDevice.current.userInterfaceIdiom == .pad && !phoneLayout.isEnabled {
+                if UIDevice.current.userInterfaceIdiom == .pad || phoneLayout.isEnabled {
                     inlineSearchField
-                        .padding(.horizontal, Theme.Layout.contentInset)
+                        .padding(.horizontal, phoneLayout.contentInset)
+                        .pageHeaderTopPadding(8)
+                }
+                #else
+                if phoneLayout.isEnabled {
+                    inlineSearchField
+                        .padding(.horizontal, phoneLayout.contentInset)
                         .pageHeaderTopPadding(8)
                 }
                 #endif
@@ -392,7 +401,7 @@ struct SearchView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack {
                             ForEach(searchKeywords, id: \.self) { keyword in
-                                Button(keyword) { searchText = keyword }
+                                Button(keyword) { applyKeyword(keyword) }
                                     .buttonStyle(.bordered)
                             }
                         }
@@ -403,22 +412,36 @@ struct SearchView: View {
                 if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
                     tabPicker
 
-                    if model.isLoading && currentEmpty {
-                        if model.tab == .all || model.tab == .songs {
-                            MusicLibraryLoadingView(rowsPerColumn: 7, scrollsHorizontally: model.tab == .all,
-                                                    showsHorizontalPanel: searchSongsShowPanel)
+                    Group {
+                        if model.isLoading && currentEmpty {
+                            if model.tab == .all || model.tab == .songs {
+                                MusicLibraryLoadingView(rowsPerColumn: 7, scrollsHorizontally: model.tab == .all,
+                                                        showsHorizontalPanel: searchSongsShowPanel)
+                            } else {
+                                ProgressView().frame(maxWidth: .infinity, minHeight: 300)
+                            }
                         } else {
-                            ProgressView().frame(maxWidth: .infinity, minHeight: 300)
+                            tabContent
                         }
-                    } else {
-                        tabContent
                     }
+                    .contentCrossfade(on: model.tab)
+                    .loadingCrossfade(model.isLoading && currentEmpty)
                 } else {
-                    emptySearchPrompt
+                    // 探索 has no separate 精选 page in any layout: browse here.
+                    ExploreShelves()
                 }
                 PlayerClearanceSpacer()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// End text input before replacing the query: an active iPad input
+    /// session can otherwise keep its own text and swallow the chip tap.
+    private func applyKeyword(_ keyword: String) {
+        searchFocused = false
+        searchText = keyword
+        model.setQuery(keyword)
     }
 
     private var tabPicker: some View {
@@ -431,23 +454,6 @@ struct SearchView: View {
         .labelsHidden()
         .padding(.horizontal, Theme.Layout.contentInset)
         .padding(.top, Theme.Spacing.control)
-    }
-
-    private var emptySearchPrompt: some View {
-        VStack(spacing: Theme.Spacing.component) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(.tertiary)
-                .padding(.top, 60)
-            Text("探索海量华语流行与经典音乐")
-                .font(Theme.Typography.cardTitle)
-                .foregroundStyle(.secondary)
-            Text("输入歌曲名称、歌手名或歌单关键字开始搜索")
-                .font(Theme.Typography.secondary)
-                .foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, Theme.Spacing.component * 2)
     }
 
     private var currentEmpty: Bool {
@@ -530,7 +536,7 @@ struct SearchView: View {
             songResults(model.songs)
             songPageFooter
         case .artists:
-            CardGrid(minWidth: 140) {
+            CardGrid(minWidth: 140, fixedColumnWidth: false) {
                 artistCards(model.artists)
             }
             .padding(.horizontal, Theme.Layout.contentInset)

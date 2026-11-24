@@ -2,7 +2,8 @@ import Foundation
 import os.log
 
 /// Finds a full-length stream for a track its own platform will not play:
-/// pyncmd first, then the other platforms (signed-in ones first), with
+/// pyncmd and the LX Music services first, then the other platforms
+/// (signed-in ones first), with
 /// Qishui last. Lookups run in parallel, but the earliest source in that
 /// order that succeeds always wins, so the result does not depend on timing.
 enum UnblockResolver {
@@ -25,7 +26,7 @@ enum UnblockResolver {
 
     private static let log = Logger(subsystem: "wow.caicai.coda", category: "audio-source")
     private static let parallelSources: [any UnblockSource] = [
-        PyncmdUnblockSource(), NeteaseUnblockSource(), QQUnblockSource(), KugouUnblockSource(),
+        PyncmdUnblockSource(), LXMusicUnblockSource(), NeteaseUnblockSource(), QQUnblockSource(), KugouUnblockSource(),
     ]
     private static let lastSource: any UnblockSource = QishuiUnblockSource()
 
@@ -66,15 +67,16 @@ enum UnblockResolver {
         return AudioQualityOption.unified(options)
     }
 
-    /// pyncmd first; then platforms with a saved account before anonymous ones.
+    /// Mirrors first, in listed order; then platforms with a saved account
+    /// before anonymous ones.
     private static func order(_ sources: [any UnblockSource]) async -> [any UnblockSource] {
         var signedIn: [any UnblockSource] = []
         var anonymous: [any UnblockSource] = []
         for source in sources {
-            if source.id == .pyncmd { continue }
+            if source.id.isMirror { continue }
             if await source.isSignedIn() { signedIn.append(source) } else { anonymous.append(source) }
         }
-        return sources.filter { $0.id == .pyncmd } + signedIn + anonymous
+        return sources.filter { $0.id.isMirror } + signedIn + anonymous
     }
 
     private enum State { case pending, failed, found(UnblockStream) }

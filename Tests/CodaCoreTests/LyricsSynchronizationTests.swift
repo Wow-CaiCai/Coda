@@ -38,15 +38,94 @@ import Testing
         #expect(lineOnly.lines.allSatisfy { $0.words == nil })
     }
 
-    @Test func keepsUpstreamCreditsSortingAndLiteralParentheses() throws {
+    @Test func dropsUpstreamCreditsKeepsSortingAndLiteralParentheses() throws {
         let raw = try response(lrc: nil,
             yrc: "{\"t\":-1000,\"c\":[{\"tx\":\"作词：作者\"}]}\n[20000,1000](20000,1000,0)再见\n[10000,2000](10000,1000,0)你好(hello)(11000,1000,0)世界")
         let parsed = LyricsParser.parse(raw)
-        #expect(parsed.lines.map(\.time) == [-1, 10, 20])
-        #expect(parsed.lines[1].text == "你好(hello)世界")
-        #expect(parsed.lines[1].words?.map(\.start) == [10, 11])
-        #expect(parsed.lines[0].words == nil)
-        #expect(parsed.lines[1].words?.isEmpty == false)
+        #expect(parsed.lines.map(\.time) == [10, 20])
+        #expect(parsed.lines[0].text == "你好(hello)世界")
+        #expect(parsed.lines[0].words?.map(\.start) == [10, 11])
+    }
+
+    @Test func dropsWholeNeteaseCreditBlocksWithUnknownRoles() throws {
+        let lrc = """
+        [00:00.00] 作词 : 梁博
+        [00:01.00] 音乐总监 : 谭伊哲@TYZ
+        [00:02.00] 爱尔兰风笛 : Eric Rigler
+        [00:03.00] 鼓 : 祁大为
+        [00:04.00] 和声 : 秋子／李郡洲
+        [00:05.00] 乐器技师 : 于磊
+        [00:06.00] 调音 : 杨光
+        [00:33.02]我跟你 本应该
+        [00:40.00]男：各自好 各自坏
+        [00:45.46]Love : is all
+        [03:57.14]谁也没有想过再想回来
+        [04:00.00] 监棚 : Bruce
+        [04:01.00] 母带 : 某人
+        """
+        let parsed = LyricsParser.parse(try response(lrc: lrc, yrc: ""))
+        let texts = parsed.lines.map(\.text).joined(separator: "|")
+        for name in ["梁博", "谭伊哲", "Eric", "祁大为", "秋子", "于磊", "杨光", "Bruce", "某人"] {
+            #expect(!texts.contains(name), "\(name) should be removed: \(texts)")
+        }
+        #expect(texts.contains("我跟你 本应该"))
+        #expect(texts.contains("各自好 各自坏"))
+        #expect(texts.contains("is all"))
+        #expect(texts.contains("谁也没有想过再想回来"))
+    }
+
+    @Test func dropsQQCreditBlockAndHeaderInWordTimedLyrics() throws {
+        let track = try JSONDecoder().decode(Track.self, from: Data(#"{"id":1,"name":"出现又离开 (Live)","ar":[{"id":2,"name":"梁博"}],"al":{"id":3,"name":"我是唱作人 第2期"},"dt":404000}"#.utf8))
+        let lrc = "[00:01.10]出现又离开 (Live) - 梁博\n[00:01.82]词：梁博\n[00:02.15]音乐总监：谭伊哲@TYZ\n[00:02.58]爱尔兰风笛：Eric Rigler\n[00:03.44]和声：秋子/李郡洲\n[00:03.68]乐器技师：于磊\n[00:33.14]我和你 本应该\n[00:37.31]女：各自好 各自坏"
+        let yrc = "[0,2350](0,130,0)出现又离开(650,130,0) Live(1300,130,0) - (1560,130,0)梁博(2080,130,0) Bruce\n[2350,2360](2350,590,0)词：梁博\n[4710,2360](4710,236,0)音乐总监：谭伊哲@TYZ\n[7070,2360](7070,262,0)爱尔兰风笛：Eric Rigler\n[9430,2360](9430,262,0)和声：秋子/李郡洲\n[11790,2360](11790,337,0)乐器技师：于磊\n[33027,4081](33027,344,0)我跟(33627,1440,0)你\n[37108,4036](37108,320,0)各自好(37708,1529,0) 各自坏"
+        let parsed = LyricsParser.parse(try response(lrc: lrc, yrc: yrc), track: track)
+        let texts = parsed.lines.map(\.text).joined(separator: "|")
+        for name in ["Bruce", "梁博", "谭伊哲", "Eric", "秋子", "于磊"] {
+            #expect(!texts.contains(name), "\(name) should be removed: \(texts)")
+        }
+        #expect(parsed.lines.count == 2)
+    }
+
+    @Test func dropsQQBackingVocalCreditsButKeepsDuetLabels() throws {
+        let lrc = "[00:02.25]词：周杰伦\n[00:09.00]制作人：周杰伦\n[00:11.25]合声：周杰伦\n[00:13.50]合声编写：周杰伦\n[00:15.75]吉他：蔡科俊Again\n[00:29.00]故事的小黄花\n[00:40.00]合：一起唱"
+        let texts = LyricsParser.parse(try response(lrc: lrc, yrc: "")).lines.map(\.text)
+        #expect(texts.first == "故事的小黄花")
+        #expect(texts.contains { $0.contains("一起唱") })
+    }
+
+    @Test func dropsOpeningTitleArtistHeaderOnly() throws {
+        let track = try JSONDecoder().decode(Track.self, from: Data(#"{"id":1,"name":"晴天","ar":[{"id":2,"name":"周杰伦"}],"al":{"id":3,"name":"叶惠美"},"dt":269000}"#.utf8))
+        let lrc = "[00:00.00]晴天 - 周杰伦\n[00:01.00]词：方文山\n[00:29.00]故事的小黄花\n[01:00.00]晴天 - 周杰伦"
+        let parsed = LyricsParser.parse(try response(lrc: lrc, yrc: ""), track: track)
+        #expect(parsed.lines.map(\.text) == ["故事的小黄花", "晴天 - 周杰伦"])
+        #expect(LyricsParser.parse(try response(lrc: lrc, yrc: "")).lines.first?.text == "晴天 - 周杰伦")
+        #expect(LyricsParser.isTitleHeader("周杰伦 - 晴天", track: track))
+        #expect(!LyricsParser.isTitleHeader("晴天 - 周杰伦 - 故事的小黄花从出生那年就飘着", track: track))
+    }
+
+    @Test func showsOnlyLyricBodyWithoutCreditsOrNotices() throws {
+        let lrc = """
+        [00:00.00] 作词 : 佚名
+        [00:00.50] 作曲 : 佚名
+        [00:01.00]编曲 Arranger：某人
+        [00:01.50]Lyrics by Someone
+        [00:02.00]Producer: Someone
+        [00:03.00]男：你好
+        [00:04.00]合：一起唱
+        [00:05.00]Love: it is all
+        [00:06.00]正文
+        [03:00.00]录音工程&MIDI制作：某人
+        [03:01.00]未经许可，不得翻唱或使用
+        """
+        let parsed = LyricsParser.parse(try response(lrc: lrc, yrc: ""))
+        #expect(!parsed.lines.contains { $0.text.contains("佚名") || $0.text.contains("某人") || $0.text.contains("Someone") })
+        #expect(!parsed.lines.contains { $0.text.contains("未经许可") })
+        #expect(parsed.lines.contains { $0.text.contains("正文") })
+        #expect(parsed.lines.contains { $0.text.contains("一起唱") })
+        #expect(parsed.lines.contains { $0.text.contains("你好") })
+        #expect(parsed.lines.contains { $0.text.contains("it is all") })
+        #expect(LyricsParser.isCredit("OP：Sony Music"))
+        #expect(!LyricsParser.isCredit("你说：我爱你"))
     }
 
     @Test func preciseOverlapsAndInstrumentalGapsFollowLyricFocusRules() {

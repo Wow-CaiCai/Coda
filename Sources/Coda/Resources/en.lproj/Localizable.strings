@@ -3,6 +3,7 @@
 /* Sidebar & navigation */
 "推荐" = "Home";
 "精选" = "Explore";
+"探索" = "Explore";
 "漫游" = "Radio";
 "我的" = "Library";
 "我喜欢的音乐" = "Liked Songs";

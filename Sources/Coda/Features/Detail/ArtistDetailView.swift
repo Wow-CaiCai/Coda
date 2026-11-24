@@ -91,6 +91,7 @@ struct ArtistDetailView: View {
             }
             PlayerClearanceSpacer()
         }
+        .loadingCrossfade(artist == nil && isLoading)
         .musicLibraryNavigationTitle(artist?.name ?? String(localized: "歌手"), enabled: true)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

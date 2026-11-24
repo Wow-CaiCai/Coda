@@ -13,7 +13,7 @@ struct UnblockLiveTests {
         let query = UnblockQuery(origin: .qishui, title: reference.name,
                                  artists: reference.artists.components(separatedBy: " / "),
                                  album: reference.album, durationMS: Int(reference.duration * 1000))
-        let sources: [any UnblockSource] = [PyncmdUnblockSource(), NeteaseUnblockSource(),
+        let sources: [any UnblockSource] = [PyncmdUnblockSource(), LXMusicUnblockSource(), NeteaseUnblockSource(),
                                             QQUnblockSource(), KugouUnblockSource()]
         var found = 0
         for source in sources {

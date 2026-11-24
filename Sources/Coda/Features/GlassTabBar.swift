@@ -1,7 +1,16 @@
 import SwiftUI
 
 enum IOSTab: Hashable {
-    case home, explore, search, library
+    case home, search, library
+}
+
+extension IOSTab {
+    /// Bottom navigation order shared by iPhone and compact windows.
+    static let barItems: [GlassTabBar.Item] = [
+        .init(tab: .home, title: "推荐", icon: "house"),
+        .init(tab: .search, title: "探索", icon: "magnifyingglass"),
+        .init(tab: .library, title: "我的", icon: "person.crop.circle"),
+    ]
 }
 
 private struct CompactWindowLayoutKey: EnvironmentKey {
@@ -38,7 +47,8 @@ enum WindowLayout {
 }
 
 
-/// The navigation capsule keeps its identity while its width and items collapse.
+/// The navigation capsule stays fully expanded; every tab, search included,
+/// is a regular item in it.
 struct GlassTabBar: View {
     struct Item: Identifiable {
         let tab: IOSTab
@@ -50,10 +60,6 @@ struct GlassTabBar: View {
     let items: [Item]
     @Binding var selection: IOSTab
     var onReselect: (IOSTab) -> Void = { _ in }
-    var isCollapsed = false
-    var expandedWidth: CGFloat
-    var collapsedTab: IOSTab = .home
-    var onExpand: () -> Void = {}
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -68,14 +74,12 @@ struct GlassTabBar: View {
         reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.35, dampingFraction: 0.82)
     }
 
-    private var mainItems: [Item] { items.filter { $0.tab != .search } }
-
     var body: some View {
         GeometryReader { geo in
-            let count = max(mainItems.count, 1)
-            let cellW = max(expandedWidth - innerInset * 2, 1) / CGFloat(count)
-            let selectedIndex = mainItems.firstIndex { $0.tab == selection } ?? 0
-            let restX = isCollapsed ? contentHeight / 2 : cellW * (CGFloat(selectedIndex) + 0.5)
+            let count = max(items.count, 1)
+            let cellW = max(geo.size.width, 1) / CGFloat(count)
+            let selectedIndex = items.firstIndex { $0.tab == selection } ?? 0
+            let restX = cellW * (CGFloat(selectedIndex) + 0.5)
             let pillX = isDragging
                 ? min(max(dragX ?? restX, cellW / 2), geo.size.width - cellW / 2)
                 : restX
@@ -84,9 +88,8 @@ struct GlassTabBar: View {
                 selectionPill
                     .frame(width: cellW - 8, height: contentHeight)
                     .position(x: pillX, y: geo.size.height / 2)
-                    .opacity(isCollapsed || selection == .search ? 0 : 1)
 
-                ForEach(Array(mainItems.enumerated()), id: \.element.id) { index, item in
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     Button {
                         if selection == item.tab { onReselect(item.tab) }
                         else { withAnimation(settle) { selection = item.tab } }
@@ -95,21 +98,8 @@ struct GlassTabBar: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(selection == item.tab ? .isSelected : [])
-                    // Only visibility snaps; position and capsule geometry keep
-                    // the original spring animation.
-                    .opacity(isCollapsed && item.tab != collapsedTab ? 0 : 1)
-                    .animation(nil, value: isCollapsed)
                     .frame(width: cellW, height: contentHeight)
-                    .position(x: isCollapsed ? contentHeight / 2 : cellW * (CGFloat(index) + 0.5),
-                              y: contentHeight / 2)
-                    .allowsHitTesting(!isCollapsed)
-                    .accessibilityHidden(isCollapsed)
-                }
-
-                if isCollapsed {
-                    Button(action: onExpand) { Color.clear.contentShape(Rectangle()) }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("展开底部导航")
+                    .position(x: cellW * (CGFloat(index) + 0.5), y: contentHeight / 2)
                 }
             }
             .contentShape(Rectangle())
@@ -127,12 +117,8 @@ struct GlassTabBar: View {
             Image(systemName: item.icon)
                 .font(.system(size: 23, weight: .semibold))
                 .symbolVariant(.fill)
-                .offset(y: isCollapsed ? 7 : 0)
-                .animation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.88), value: isCollapsed)
             Text(item.title)
                 .font(.system(size: 10, weight: .semibold))
-                .opacity(isCollapsed ? 0 : 1)
-                .animation(nil, value: isCollapsed)
         }
         .foregroundStyle(isSelected
                          ? AnyShapeStyle(Theme.accent)
@@ -158,56 +144,25 @@ struct GlassTabBar: View {
             .onChanged { value in
                 // Wait for a clear horizontal intent before "lifting" the pill,
                 // so a plain tap slides rather than teleporting to the finger.
-                guard !isCollapsed, abs(value.translation.width) > abs(value.translation.height), count > 0 else { return }
+                guard abs(value.translation.width) > abs(value.translation.height), !items.isEmpty else { return }
                 if !isDragging && abs(value.translation.width) < 8 { return }
                 isDragging = true
                 dragX = value.location.x
-                let tab = mainItems[index(for: value.location.x, cellW: cellW, count: count)].tab
+                let tab = items[index(for: value.location.x, cellW: cellW, count: count)].tab
                 if tab != selection { selection = tab }   // live switch, pill tracks finger
             }
             .onEnded { value in
-                guard isDragging, !isCollapsed else { return }
-                let tab = mainItems[index(for: value.location.x, cellW: cellW, count: count)].tab
-                if isDragging {
-                    withAnimation(settle) { selection = tab; dragX = nil }
-                }
-
-                withAnimation(settle) { isDragging = false }
+                guard isDragging, !items.isEmpty else { return }
+                let tab = items[index(for: value.location.x, cellW: cellW, count: count)].tab
+                withAnimation(settle) { selection = tab; dragX = nil; isDragging = false }
             }
     }
 }
-/// Shared material keeps the detached search button consistent with the capsule.
+
+/// Shared floating glass material for the tab capsule.
 struct LegacyTabSurface: ViewModifier {
     func body(content: Content) -> some View {
         content.modifier(FloatingGlassSurface(shape: Capsule()))
-    }
-}
-
-struct LegacySearchTabButton: View {
-    @Binding var selection: IOSTab
-    var onReselect: (IOSTab) -> Void
-
-    var body: some View {
-        Button {
-            if selection == .search { onReselect(.search) }
-            else { selection = .search }
-        } label: {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 23, weight: .semibold))
-                .foregroundStyle(selection == .search ? Theme.accent : Color.primary.opacity(0.8))
-                .frame(width: 64, height: 64)
-                .background {
-                    if selection == .search {
-                        Circle().fill(Theme.accent.opacity(0.12)).padding(4)
-                    }
-                }
-                .modifier(LegacyTabSurface())
-        }
-        .buttonStyle(.pressable)
-        // Behind the Button, not in its label, so the Button keeps its action.
-        .blocksTouchPassThrough(in: Circle())
-        .accessibilityLabel("搜索")
-        .accessibilityAddTraits(selection == .search ? .isSelected : [])
     }
 }
 
@@ -247,8 +202,9 @@ struct IOSMiniPlayerBar: View {
         }
     }
 
+    // Cover, type, control sizes and spacing follow MeloX's iOS mini player.
     private var content: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: presentation.isInline ? 8 : 10) {
             Button(action: showNowPlaying) {
                 trackSummary
             }
@@ -257,29 +213,29 @@ struct IOSMiniPlayerBar: View {
             .accessibilityHint("打开正在播放")
 
             if !presentation.isInline {
-                PlayerTransportButton(icon: "backward.fill", label: "上一首", size: 14,
-                                      width: 44, tint: PlayerControlAppearance.barTint, height: 44, disabled: player.isFMMode,
+                PlayerTransportButton(icon: "backward.fill", label: "上一首", size: controlIconSize,
+                                      width: controlSize, tint: PlayerControlAppearance.barTint, height: controlSize, disabled: player.isFMMode,
                                       action: player.previous)
                     .transition(presentation.drawsBackground ? .identity : .opacity)
             }
 
             PlayerPlayPauseButton(isPlaying: player.isPlaying, isLoading: player.showsPlaybackLoading,
-                                  size: 15, width: 44, tint: PlayerControlAppearance.barTint, height: 44, action: player.togglePlayPause)
+                                  size: controlIconSize, width: controlSize, tint: PlayerControlAppearance.barTint,
+                                  height: controlSize, action: player.togglePlayPause)
 
             if !presentation.isInline {
-                PlayerTransportButton(icon: "forward.fill", label: "下一首", size: 14,
-                                      width: 44, tint: PlayerControlAppearance.barTint, height: 44, action: player.next)
+                PlayerTransportButton(icon: "forward.fill", label: "下一首", size: controlIconSize,
+                                      width: controlSize, tint: PlayerControlAppearance.barTint, height: controlSize, action: player.next)
                     .transition(presentation.drawsBackground ? .identity : .opacity)
             }
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 6)
-        .padding(.vertical, 4)
+        .padding(.horizontal, presentation.isInline ? 8 : 12)
+        .padding(.vertical, presentation.isInline ? 3 : 6)
         .frame(maxWidth: .infinity)
     }
 
     private var trackSummary: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(spacing: presentation.isInline ? 8 : 10) {
             CachedAsyncImage(url: player.currentTrack?.album.picUrl?.resizedImageURL(128))
                 .frame(
                     width: artworkSize,
@@ -288,38 +244,33 @@ struct IOSMiniPlayerBar: View {
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous))
                 .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
 
-            VStack(alignment: .leading, spacing: metadataSpacing) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text(player.currentTrack?.name ?? String(localized: "未在播放"))
-                    .font(titleFont)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(player.currentTrack?.artistNames ?? "Coda")
-                    .font(artistFont)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                // The compact inline accessory has room for the title only.
+                if !presentation.isInline {
+                    Text(player.currentTrack?.artistNames ?? "Coda")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contentShape(Rectangle())
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var artworkSize: CGFloat {
-        presentation.isInline ? 28 : 32
+        presentation.isInline ? 30 : 40
     }
 
-    private var titleFont: Font {
-        .system(size: presentation.isInline ? 10 : 13, weight: .semibold)
-    }
-
-    private var artistFont: Font {
-        .system(size: presentation.isInline ? 8 : 10)
-    }
-
-    private var metadataSpacing: CGFloat {
-        presentation.isInline ? 2 : 3
-    }
+    /// 36pt hit area with a `.title3`-sized (20pt) symbol.
+    private let controlSize: CGFloat = 36
+    private let controlIconSize: CGFloat = 20
 
     private var nowPlayingAccessibilityLabel: String {
         let title = player.currentTrack?.name ?? String(localized: "正在播放")

@@ -22,7 +22,7 @@ struct InteractiveCardStyle: ButtonStyle {
             )
             .animation(AppAnimation.spring, value: configuration.isPressed)
             .animation(AppAnimation.spring, value: isHovering)
-            .onHover { isHovering = $0 }
+            .scrollAwareHover { isHovering = $0 }
         #else
         configuration.label
             .opacity(configuration.isPressed ? 0.8 : 1.0)
@@ -49,7 +49,7 @@ struct InteractiveRowStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.8 : 1.0)
             .animation(AppAnimation.quick, value: configuration.isPressed)
             .animation(AppAnimation.quick, value: isHovering)
-            .onHover { isHovering = $0 }
+            .scrollAwareHover { isHovering = $0 }
         #else
         configuration.label
             .background(
@@ -100,7 +100,7 @@ struct ChipButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.95 : (isHovering ? 1.03 : 1.0))
             .animation(AppAnimation.spring, value: configuration.isPressed)
             .animation(AppAnimation.spring, value: isHovering)
-            .onHover { isHovering = $0 }
+            .scrollAwareHover { isHovering = $0 }
         #else
         configuration.label
             .font(Theme.Typography.secondary.weight(isSelected ? .semibold : .medium))

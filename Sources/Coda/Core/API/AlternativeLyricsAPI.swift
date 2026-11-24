@@ -28,6 +28,22 @@ enum LyricsSource: String, CaseIterable, Identifiable {
     }
 }
 
+extension LyricsSource {
+    /// The toast for a failed lyrics load. A source with no lyrics for the
+    /// song is only worth saying when the user picked that source; automatic
+    /// loads on every track change stay quiet about it.
+    func failureToast(for error: Error, userInitiated: Bool, keptLyrics: Bool) -> String? {
+        guard (error as? AlternativeLyricsAPI.Failure) == .noMatch else {
+            return String(localized: "\(title)：\(error.localizedDescription)")
+        }
+        guard userInitiated else { return nil }
+        if self == .automatic { return String(localized: "未找到这首歌的同步歌词") }
+        return keptLyrics
+            ? String(localized: "\(title)没有这首歌的歌词，已保留当前歌词")
+            : String(localized: "\(title)没有这首歌的歌词，可尝试其他来源")
+    }
+}
+
 enum AlternativeLyricsAPI {
     enum Failure: LocalizedError {
         case noMatch, invalidResponse
@@ -98,9 +114,12 @@ enum AlternativeLyricsAPI {
         switch source {
         case .automatic: return []
         case .netease:
+            // A QQ, Kugou or Qishui track's id is a local handle, not a Netease id.
+            guard track.platformSong == nil else { return [] }
             let response = try await NeteaseAPI.lyric(id: track.id)
             return [LyricsCandidate(source: .netease, id: String(track.id), title: track.name,
-                artists: track.artists.map(\.name), album: track.album.name, duration: track.duration, response: response)]
+                artists: track.artists.map(\.name), album: track.album.name, duration: track.duration,
+                response: response, matchedByID: true)]
         case .qqMusic: return try await qqMusic(track)
         case .kugou: return try await kugou(track)
         case .qishui: return try await qishui(track)
@@ -113,24 +132,22 @@ enum AlternativeLyricsAPI {
         if let id = track.platformSong?.qishui?.trackID, !id.isEmpty {
             let response = try await api.lyric(trackID: id)
             return [LyricsCandidate(source: .qishui, id: id, title: track.name,
-                artists: track.artists.map(\.name), album: track.album.name, duration: track.duration, response: response)]
+                artists: track.artists.map(\.name), album: track.album.name, duration: track.duration,
+                response: response, matchedByID: true)]
         }
 
         let keyword = ([track.name] + track.artists.prefix(1).map(\.name)).joined(separator: " ")
         let page = try await api.search(keyword: keyword, playlists: false, limit: 15, offset: 0)
-        let matches = page.songs.compactMap { song -> (id: String, song: ProviderSong, artists: [String], score: Double)? in
-            let artists = [song.artists]
-            guard let id = song.qishui?.trackID,
-                  let score = LyricsMatching.metadataScore(title: song.name, artists: artists,
-                    album: song.album, duration: song.duration, track: track) else { return nil }
-            return (id, song, artists, score)
-        }.sorted { $0.score > $1.score }
+        let matches = await rankedHits(page.songs.filter { $0.qishui?.trackID.isEmpty == false }, track: track) {
+            ($0.name, [$0.artists], $0.album, $0.duration)
+        }
         var results: [LyricsCandidate] = []
-        for match in matches.prefix(3) {
+        for song in matches.prefix(3) {
             try Task.checkCancellation()
-            if let response = try? await api.lyric(trackID: match.id) {
-                results.append(LyricsCandidate(source: .qishui, id: match.id, title: match.song.name,
-                    artists: match.artists, album: match.song.album, duration: match.song.duration, response: response))
+            guard let id = song.qishui?.trackID else { continue }
+            if let response = try? await api.lyric(trackID: id) {
+                results.append(LyricsCandidate(source: .qishui, id: id, title: song.name,
+                    artists: [song.artists], album: song.album, duration: song.duration, response: response))
             }
         }
         return results
@@ -168,16 +185,47 @@ enum AlternativeLyricsAPI {
                              lyricUser: nil, transUser: nil, nolyric: nil, uncollected: nil)
     }
 
+    /// The shared instrumental marker, for platforms that flag instrumentals
+    /// outside the lyric text (Kugou's language, Qishui's vocal, LRCLIB's
+    /// instrumental) or in their own wording (QQ Music).
+    static func instrumentalResponse() -> LyricResponse {
+        var response = LyricResponse(lrc: .init(lyric: "[00:00.00]纯音乐，请欣赏"), tlyric: nil, romalrc: nil, yrc: nil,
+                                     ytlrc: nil, yromalrc: nil, lyricUser: nil, transUser: nil, nolyric: nil, uncollected: nil)
+        response.pureMusic = true
+        return response
+    }
+
+    /// Ranks search hits by metadata. When some hit names the song but none
+    /// is accepted, the track's catalog aliases are loaded once (cached per
+    /// artist) and the hits ranked again: "李闰珉" may be "Yiruma".
+    static func rankedHits<Hit>(_ hits: [Hit], track: Track,
+                                metadata: (Hit) -> (title: String, artists: [String], album: String?, duration: Double?)) async -> [Hit] {
+        func ranked() -> [Hit] {
+            hits.compactMap { hit -> (Hit, Double)? in
+                let item = metadata(hit)
+                return LyricsMatching.metadataScore(title: item.title, artists: item.artists, album: item.album,
+                                                    duration: item.duration, track: track).map { (hit, $0) }
+            }.sorted { $0.1 > $1.1 }.map(\.0)
+        }
+        let first = ranked()
+        guard first.isEmpty, hits.contains(where: { LyricsMatching.titleMatch(metadata($0).title, track: track) != nil }) else {
+            return first
+        }
+        await LyricsArtistAliases.shared.load(for: track)
+        return ranked()
+    }
+
     static func matchScore(title: String, artist: String, duration: Double, track: Track) -> Double? {
-        guard LyricsMatching.metadataScore(title: title, artists: [artist],
-                                          album: nil, duration: duration, track: track) != nil else { return nil }
+        guard LyricsMatching.metadataScore(title: title, artists: [artist], album: nil, duration: duration,
+                                          track: track, instrumental: false) != nil else { return nil }
         return abs(duration - track.duration)
     }
 
     private static func makeCandidate(source: LyricsSource, id: String, title: String, artists: [String],
-                                      album: String?, duration: Double?, response: LyricResponse, track: Track) -> LyricsCandidate? {
+                                      album: String?, duration: Double?, response: LyricResponse, track: Track,
+                                      matchedByID: Bool = false) -> LyricsCandidate? {
         let candidate = LyricsCandidate(source: source, id: id, title: title, artists: artists,
-                                        album: album, duration: duration, response: response)
+                                        album: album, duration: duration, response: response, matchedByID: matchedByID)
         return LyricsMatching.score(candidate, for: track) == nil ? nil : candidate
     }
 
@@ -188,7 +236,8 @@ enum AlternativeLyricsAPI {
             "artist_name": track.artists.first?.name ?? track.artistNames])
         return (search["results"] as? [[String: Any]] ?? []).compactMap { item in
             let instrumental = item["instrumental"] as? Bool == true
-            guard let response = try? response(lrc: instrumental ? "[00:00.00]纯音乐，请欣赏" : item["syncedLyrics"] as? String ?? "") else { return nil }
+            guard let response = instrumental ? instrumentalResponse()
+                    : try? response(lrc: item["syncedLyrics"] as? String ?? "") else { return nil }
             return makeCandidate(source: .lrclib, id: String(describing: item["id"] ?? ""),
                 title: item["trackName"] as? String ?? "", artists: [item["artistName"] as? String ?? ""],
                 album: item["albumName"] as? String, duration: (item["duration"] as? NSNumber)?.doubleValue,
@@ -197,30 +246,37 @@ enum AlternativeLyricsAPI {
     }
 
     private static func qqMusic(_ track: Track) async throws -> [LyricsCandidate] {
+        // A QQ Music track names its own recording; no search can do better.
+        // If that fetch fails, searching remains possible.
+        if let song = track.platformSong, song.source == .qq, let mid = song.qqMid, !mid.isEmpty {
+            do {
+                let response = try await qqLyrics(songID: song.id > 0 ? song.id : nil, mid: mid)
+                return [LyricsCandidate(source: .qqMusic, id: mid, title: track.name, artists: track.artists.map(\.name),
+                    album: track.album.name, duration: track.duration, response: response, matchedByID: true)]
+            } catch { try Task.checkCancellation() }
+        }
         let body: [String: Any] = ["req_1": ["method": "DoSearchForQQMusicDesktop", "module": "music.search.SearchCgiService",
             "param": ["num_per_page": 20, "page_num": 1, "query": "\(track.name) \(track.artistNames)", "search_type": 0]]]
         let json = try await request("https://u6.y.qq.com/cgi-bin/musicu.fcg", body: body, referer: "https://c.y.qq.com/")
         let req = json["req_1"] as? [String: Any]
         let data = req?["data"] as? [String: Any]
         let bodyData = data?["body"] as? [String: Any]
-        let songs = (bodyData?["song"] as? [String: Any])?["list"] as? [[String: Any]] ?? []
-        let matches = songs.compactMap { song -> ([String: Any], Double)? in
-            let artists = (song["singer"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-            let album = (song["album"] as? [String: Any])?["name"] as? String
-            guard song["mid"] is String,
-                  let score = LyricsMatching.metadataScore(title: song["title"] as? String ?? "", artists: artists, album: album,
-                       duration: (song["interval"] as? NSNumber)?.doubleValue, track: track) else { return nil }
-            return (song, score)
-        }.sorted { $0.1 > $1.1 }
+        let songs = ((bodyData?["song"] as? [String: Any])?["list"] as? [[String: Any]] ?? []).filter { $0["mid"] is String }
+        func artists(_ song: [String: Any]) -> [String] {
+            (song["singer"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        }
+        func album(_ song: [String: Any]) -> String? { (song["album"] as? [String: Any])?["name"] as? String }
+        let matches = await rankedHits(songs, track: track) {
+            ($0["title"] as? String ?? "", artists($0), album($0), ($0["interval"] as? NSNumber)?.doubleValue)
+        }
         var results: [LyricsCandidate] = []
-        for (song, _) in matches.prefix(3) {
+        for song in matches.prefix(3) {
             try Task.checkCancellation()
             let mid = song["mid"] as! String
             do {
                 let response = try await qqLyrics(songID: (song["id"] as? NSNumber)?.intValue, mid: mid)
                 if let candidate = makeCandidate(source: .qqMusic, id: mid, title: song["title"] as? String ?? "",
-                    artists: (song["singer"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String },
-                    album: (song["album"] as? [String: Any])?["name"] as? String,
+                    artists: artists(song), album: album(song),
                     duration: (song["interval"] as? NSNumber)?.doubleValue, response: response, track: track) {
                     results.append(candidate)
                 }
@@ -280,6 +336,8 @@ enum AlternativeLyricsAPI {
             return decodeEntities(value)
         }
         guard let lrc = decoded(original) else { throw Failure.invalidResponse }
+        // QQ Music marks instrumentals with its own sentence, at "[00:00:00]".
+        if isQQInstrumental(lrc) { return instrumentalResponse() }
         let translation = (json["trans"] as? String).flatMap(decoded).map { text in
             text.components(separatedBy: .newlines).filter { line in
                 line.replacingOccurrences(of: #"\[[^\]]*\]"#, with: "", options: .regularExpression)
@@ -308,28 +366,51 @@ enum AlternativeLyricsAPI {
         return value
     }
 
+    static func isQQInstrumental(_ lyric: String) -> Bool {
+        let lines = lyric.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return lines.count <= 10 && lines.contains { $0.contains("没有填词的纯音乐") || $0.contains("纯音乐，请欣赏") }
+    }
+
     private static func kugou(_ track: Track) async throws -> [LyricsCandidate] {
-        let json = try await request("https://lyrics.kugou.com/search", query: ["ver": "1", "man": "yes", "client": "pc",
-            "keyword": "\(track.name) \(track.artistNames)", "duration": String(track.durationMS)])
-        // This endpoint has no album field; leave it unknown in the shared score.
-        let matches = (json["candidates"] as? [[String: Any]] ?? []).compactMap { item -> ([String: Any], Double)? in
-            guard let score = LyricsMatching.metadataScore(title: item["song"] as? String ?? "",
-                artists: [item["singer"] as? String ?? ""], album: nil,
-                duration: ((item["duration"] as? NSNumber)?.doubleValue).map { $0 / 1000 }, track: track) else { return nil }
-            return (item, score)
-        }.sorted { $0.1 > $1.1 }
+        // A Kugou track's hash names its recording; those hits need no metadata
+        // match (they are often titled without the "(Live)" the track carries).
+        var hashed: [[String: Any]] = []
+        if let hash = track.platformSong?.kugouHash, !hash.isEmpty {
+            let json = try? await request("https://lyrics.kugou.com/search", query: ["ver": "1", "man": "yes", "client": "pc",
+                "hash": hash, "duration": String(track.durationMS)])
+            hashed = json?["candidates"] as? [[String: Any]] ?? []
+        }
+        var matches = hashed.map { ($0, true) }
+        if matches.isEmpty {
+            let json = try await request("https://lyrics.kugou.com/search", query: ["ver": "1", "man": "yes", "client": "pc",
+                "keyword": LyricsTitle.searchKeyword(for: track), "duration": String(track.durationMS)])
+            // This endpoint has no album field; leave it unknown in the shared score.
+            matches = await rankedHits(json["candidates"] as? [[String: Any]] ?? [], track: track) {
+                ($0["song"] as? String ?? "", [$0["singer"] as? String ?? ""], nil,
+                 ((($0["duration"] as? NSNumber)?.doubleValue).map { $0 / 1000 }))
+            }.map { ($0, false) }
+        }
         var results: [LyricsCandidate] = []
-        for (item, _) in matches.prefix(3) {
+        for (item, byHash) in matches.prefix(3) {
             try Task.checkCancellation()
             guard let id = item["id"] as? String, let key = item["accesskey"] as? String else { continue }
+            let title = byHash ? track.name : item["song"] as? String ?? ""
+            let artists = byHash ? track.artists.map(\.name) : [item["singer"] as? String ?? ""]
+            let duration = ((item["duration"] as? NSNumber)?.doubleValue).map { $0 / 1000 }
             do {
-                let download = try await request("https://lyrics.kugou.com/download", query: ["ver": "1", "client": "pc", "id": id,
-                    "accesskey": key, "fmt": "krc", "charset": "utf8"])
-                guard let content = download["content"] as? String else { continue }
-                let response = try decodeKRC(content)
-                if let candidate = makeCandidate(source: .kugou, id: id, title: item["song"] as? String ?? "",
-                    artists: [item["singer"] as? String ?? ""], album: nil,
-                    duration: ((item["duration"] as? NSNumber)?.doubleValue).map { $0 / 1000 }, response: response, track: track) {
+                // Kugou flags instrumentals on the candidate; their lyric files
+                // are often user uploads of unrelated prose, so never read them.
+                let response: LyricResponse
+                if item["language"] as? String == "纯音乐" {
+                    response = instrumentalResponse()
+                } else {
+                    let download = try await request("https://lyrics.kugou.com/download", query: ["ver": "1", "client": "pc", "id": id,
+                        "accesskey": key, "fmt": "krc", "charset": "utf8"])
+                    guard let content = download["content"] as? String else { continue }
+                    response = try decodeKRC(content)
+                }
+                if let candidate = makeCandidate(source: .kugou, id: id, title: title, artists: artists, album: nil,
+                    duration: duration, response: response, track: track, matchedByID: byHash) {
                     results.append(candidate)
                 }
             } catch { try Task.checkCancellation() }

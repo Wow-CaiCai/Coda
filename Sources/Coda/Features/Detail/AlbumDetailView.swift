@@ -120,6 +120,7 @@ struct AlbumDetailView: View {
                 }
             }
         }
+        .loadingCrossfade(album == nil && isLoading)
         .musicLibraryArtworkBackground(album?.picUrl)
         .musicLibraryNavigationTitle(album?.name ?? String(localized: "专辑"), enabled: true)
         #if os(iOS)

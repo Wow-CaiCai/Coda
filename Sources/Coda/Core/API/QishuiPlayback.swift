@@ -85,10 +85,13 @@ extension QishuiMusicAPI {
         try Task.checkCancellation()
         do {
             let body = try await seoTrack(trackID, timeout: original == nil ? nil : 3)
-            guard let response = Self.lyrics(in: body, preferredOriginal: original) else {
-                throw AlternativeLyricsAPI.Failure.noMatch
+            if let response = Self.lyrics(in: body, preferredOriginal: original) { return response }
+            // Qishui serves no lyric for an instrumental and marks the track
+            // itself: vocal 1 is sung, 2 is instrumental.
+            if (Self.track(in: body)["vocal"] as? NSNumber)?.intValue == 2 {
+                return AlternativeLyricsAPI.instrumentalResponse()
             }
-            return response
+            throw AlternativeLyricsAPI.Failure.noMatch
         } catch {
             try Task.checkCancellation()
             if let original { return original }

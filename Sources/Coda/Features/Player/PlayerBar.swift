@@ -6,6 +6,7 @@ struct PlayerBar: View {
     var body: some View {
         DockedPlayerBar()
             .modifier(DesktopFloatingSurface())
+            .modifier(NowPlayingZoomSourceReporter(cornerRadius: 26))
             .padding(.horizontal, Theme.Layout.playerBarHorizontalMargin)
             .padding(.bottom, Theme.Layout.playerBarBottomMargin)
     }

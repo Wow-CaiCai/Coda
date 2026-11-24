@@ -4,7 +4,7 @@
 
 <h1 align="center">Coda</h1>
 
-<h3 align="center">一个界面，听遍所有曲库。</h3>
+<h3 align="center">好的音乐，没有“围墙”</h3>
 
 <p align="center">面向 Mac、iPhone 与 iPad 的原生 SwiftUI 音乐客户端。</p>
 
@@ -13,40 +13,98 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/screenshots/framed/macbook-player.png" width="88%" alt="Mac 正在播放：同步歌词与流动背景">
+  <img src="docs/assets/screenshots/mac/player.png" width="88%" alt="Mac 正在播放：同步歌词与流动背景">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshots/ios/bigcover-1.png" width="19%" alt="正在播放：果实">
+  <img src="docs/assets/screenshots/ios/bigcover-2.png" width="19%" alt="正在播放：WILDFLOWER">
+  <img src="docs/assets/screenshots/ios/bigcover-4.png" width="19%" alt="正在播放：海浪">
+  <img src="docs/assets/screenshots/ios/bigcover-6.png" width="19%" alt="正在播放：阿司匹林">
+  <img src="docs/assets/screenshots/ios/bigcover-11.png" width="19%" alt="正在播放：Havana">
 </p>
 
 ---
 
 ## 所有曲库，一个入口。
 
-网易云音乐、QQ 音乐、酷狗音乐、汽水音乐，在同一个界面里搜索、收藏、播放。不必再在四个 App 之间来回跳转。扫码或导入凭证即可登录。所有平台的账号并排陈列，在线状态与会员身份清晰可见，轻点即可切换。登录数据可一键导出到剪贴板，换一台设备再导入，无需重新扫码。
+网易云音乐、QQ 音乐、酷狗音乐、汽水音乐，在同一个界面里搜索、收藏、播放，不必在四个 App 之间来回跳转。
 
-<p align="center"><img src="docs/assets/screenshots/account-management.png" width="88%" alt="账号管理：多平台账号、会员状态、导入导出登录数据"></p>
-<p align="center"><sub>账号管理</sub></p>
-
-## 歌词与背景，随音乐一起流动。
-
-逐行同步，也可逐字同步。翻译就在原文下方，日语歌曲附带罗马音与假名注音。歌词来源在多个平台间自动优选，背景从专辑封面取色，跟着旋律缓缓起伏。
+扫码或导入凭证即可登录。所有平台的账号并排陈列，在线状态与会员身份一目了然，轻点即可切换。登录数据可一键导出到剪贴板，换一台设备再导入，无需重新扫码。
 
 <p align="center">
-  <img src="docs/assets/screenshots/framed/iphone-player.png" width="23%" alt="正在播放">
-  <img src="docs/assets/screenshots/framed/iphone-lyrics.png" width="23%" alt="流体背景下的逐字歌词">
-  <img src="docs/assets/screenshots/framed/iphone-comments.png" width="23%" alt="歌曲评论">
+  <img src="docs/assets/screenshots/ios/home.png" width="23%" alt="网易云音乐首页">
+  <img src="docs/assets/screenshots/ios/home-qq.png" width="23%" alt="QQ 音乐首页">
+  <img src="docs/assets/screenshots/ios/home-kugou.png" width="23%" alt="酷狗音乐首页">
+  <img src="docs/assets/screenshots/ios/home-qishui.png" width="23%" alt="汽水音乐首页">
 </p>
-<p align="center"><sub>正在播放 · 歌词 · 评论</sub></p>
+<p align="center"><sub>网易云音乐 · QQ 音乐 · 酷狗音乐 · 汽水音乐</sub></p>
+
+## 每张封面，都是一种颜色。
+
+正在播放页从专辑封面取色，背景随旋律缓缓流动。冷调的深海、暖调的落日、黑白的森林，每首歌都有自己的房间。
+
+<p align="center">
+  <img src="docs/assets/screenshots/ios/bigcover-3.png" width="23%" alt="正在播放：爱人">
+  <img src="docs/assets/screenshots/ios/bigcover-5.png" width="23%" alt="正在播放：太聪明">
+  <img src="docs/assets/screenshots/ios/bigcover-7.png" width="23%" alt="正在播放：浴室">
+  <img src="docs/assets/screenshots/ios/bigcover-8.png" width="23%" alt="正在播放：总有一天你会出现在我身边">
+</p>
+<p align="center">
+  <img src="docs/assets/screenshots/ios/bigcover-9.png" width="23%" alt="正在播放：不称职的天才">
+  <img src="docs/assets/screenshots/ios/bigcover-10.png" width="23%" alt="正在播放：暴风雨">
+  <img src="docs/assets/screenshots/ios/bigcover-12.png" width="23%" alt="正在播放：Cruel Summer">
+  <img src="docs/assets/screenshots/ios/bigcover-13.png" width="23%" alt="正在播放：exile">
+</p>
+<p align="center">
+  <img src="docs/assets/screenshots/ios/player-4.png" width="23%" alt="正在播放：还在流浪">
+  <img src="docs/assets/screenshots/ios/player-5.png" width="23%" alt="正在播放：我不难过">
+  <img src="docs/assets/screenshots/ios/player-7.png" width="23%" alt="正在播放：スパークル">
+  <img src="docs/assets/screenshots/ios/player-14.png" width="23%" alt="正在播放：我想念">
+</p>
+<p align="center"><sub>封面取色的正在播放页</sub></p>
+
+## 歌词，随音乐一起流动。
+
+逐行同步，也可逐字同步。翻译就在原文下方，日语歌曲附带罗马音与假名注音。歌词来源在多个平台间自动优选，只留下正文，不再被作词、作曲、版权声明打断。
+
+<p align="center">
+  <img src="docs/assets/screenshots/ios/lyrics-6.png" width="23%" alt="逐字歌词：我想念">
+  <img src="docs/assets/screenshots/ios/lyrics-7.png" width="23%" alt="逐字歌词：绅士">
+  <img src="docs/assets/screenshots/ios/lyrics-4.png" width="23%" alt="逐字歌词：季候风">
+  <img src="docs/assets/screenshots/ios/comments.png" width="23%" alt="歌曲评论">
+</p>
+<p align="center"><sub>歌词 · 评论</sub></p>
 
 ## 发现，从每天开始。
 
 每日推荐、私人雷达、精选歌单、排行榜。单曲、歌手、专辑、歌单，一次搜索全部呈现。
 
 <p align="center">
-  <img src="docs/assets/screenshots/framed/iphone-home.png" width="23%" alt="推荐：每日推荐与私人雷达">
-  <img src="docs/assets/screenshots/framed/iphone-featured.png" width="23%" alt="精选：歌单与排行榜">
-  <img src="docs/assets/screenshots/framed/iphone-search.png" width="23%" alt="搜索：歌手的单曲">
-  <img src="docs/assets/screenshots/framed/iphone-artist.png" width="23%" alt="歌手页">
+  <img src="docs/assets/screenshots/ios/featured.png" width="23%" alt="精选：歌单与排行榜">
+  <img src="docs/assets/screenshots/ios/search.png" width="23%" alt="搜索：歌手的单曲">
+  <img src="docs/assets/screenshots/ios/artist-3.png" width="23%" alt="歌手页：王菲">
+  <img src="docs/assets/screenshots/ios/artist-5.png" width="23%" alt="歌手页：赵雷">
 </p>
-<p align="center"><sub>推荐 · 精选 · 搜索 · 歌手</sub></p>
+<p align="center"><sub>精选 · 搜索 · 歌手</sub></p>
+
+## 专辑与歌单，各有各的样子。
+
+页面底色同样取自封面，深色专辑沉静，浅色专辑明亮。封面、曲目数、时长与发行日期安放在同一处，一键播放或收藏。
+
+<p align="center">
+  <img src="docs/assets/screenshots/ios/album-3.png" width="23%" alt="专辑：11月的萧邦">
+  <img src="docs/assets/screenshots/ios/album-5.png" width="23%" alt="专辑：魔杰座">
+  <img src="docs/assets/screenshots/ios/album-7.png" width="23%" alt="专辑：ヨスガノソラ">
+  <img src="docs/assets/screenshots/ios/album-12.png" width="23%" alt="专辑：君の名は。">
+</p>
+<p align="center">
+  <img src="docs/assets/screenshots/ios/album-10.png" width="23%" alt="专辑：未完成">
+  <img src="docs/assets/screenshots/ios/album-13.png" width="23%" alt="专辑：初。爱">
+  <img src="docs/assets/screenshots/ios/album-16.png" width="23%" alt="专辑：署前街少年">
+  <img src="docs/assets/screenshots/ios/album-17.png" width="23%" alt="专辑：绅士">
+</p>
+<p align="center"><sub>专辑</sub></p>
 
 ---
 
@@ -56,51 +114,68 @@
 
 ### iPhone
 
-握在手里刚刚好。喜欢的音乐、创建与收藏的歌单、最近播放、下载与云盘，都在你的资料库里。横过来，正在播放页一分为二：左边是封面，右边是歌词。
+握在手里刚刚好。喜欢的音乐、创建与收藏的歌单、最近播放、下载与云盘，都在你的资料库里。迷你播放条轻点即放大为正在播放页；横过来，页面一分为二：左边是封面，右边是歌词。
 
 <p align="center">
-  <img src="docs/assets/screenshots/framed/iphone-playlist.png" width="18%" alt="歌单页">
-  <img src="docs/assets/screenshots/framed/iphone-landscape-player.png" width="64%" alt="横屏正在播放与同步歌词">
+  <img src="docs/assets/screenshots/ios/lyrics.png" width="18%" alt="正在播放：歌词">
+  <img src="docs/assets/screenshots/ios/landscape-player.png" width="64%" alt="横屏正在播放与同步歌词">
 </p>
 <p align="center"><sub>iOS 16 正在播放</sub></p>
 
 ### iPad
 
-侧边栏收纳平台、资料库与歌单，悬浮迷你播放条始终触手可及。横屏时，推荐货架横向舒展，搜索结果与歌单分为两列，正在播放与歌词或评论并排而立。
+侧边栏收纳平台、资料库与歌单，悬浮迷你播放条始终触手可及。横屏时，推荐货架横向舒展，探索页按分类陈列歌单，正在播放与歌词或评论并排而立。
 
 <p align="center">
-  <img src="docs/assets/screenshots/framed/ipad-landscape-home.png" width="48%" alt="横屏推荐与侧边栏">
-  <img src="docs/assets/screenshots/framed/ipad-landscape-search.png" width="48%" alt="横屏搜索双列结果">
+  <img src="docs/assets/screenshots/ipad/home.png" width="48%" alt="横屏推荐与侧边栏">
+  <img src="docs/assets/screenshots/ipad/explore.png" width="48%" alt="探索：搜索与分类歌单">
 </p>
 <p align="center">
-  <img src="docs/assets/screenshots/framed/ipad-landscape-playlist.png" width="48%" alt="歌单页双列歌曲">
-  <img src="docs/assets/screenshots/framed/ipad-landscape-artist.png" width="48%" alt="歌手页与热门单曲">
+  <img src="docs/assets/screenshots/ipad/player.png" width="48%" alt="横屏正在播放与同步歌词">
+  <img src="docs/assets/screenshots/ipad/comments.png" width="48%" alt="横屏正在播放与歌曲评论">
 </p>
 <p align="center">
-  <img src="docs/assets/screenshots/framed/ipad-landscape-player.png" width="48%" alt="横屏正在播放与同步歌词">
-  <img src="docs/assets/screenshots/framed/ipad-landscape-comments.png" width="48%" alt="横屏正在播放与歌曲评论">
+  <img src="docs/assets/screenshots/ipad/playlist.png" width="48%" alt="歌单页双列歌曲">
+  <img src="docs/assets/screenshots/ipad/artist.png" width="48%" alt="歌手页与热门单曲">
 </p>
-<p align="center"><sub>iPadOS 26 · 推荐 · 搜索 · 歌单 · 歌手 · 正在播放 · 评论</sub></p>
+<p align="center"><sub>iPadOS 26 · 推荐 · 探索 · 正在播放 · 评论 · 歌单 · 歌手</sub></p>
 
 ### Mac
 
-为桌面而生的大画布。侧边栏一目了然，悬浮播放条安静地停在底部，全屏播放页把歌词变成整面墙的风景。
+为桌面而生的大画布。侧边栏一目了然，悬浮播放条安静地停在底部，点开即放大为全屏播放页，把歌词变成整面墙的风景。
 
 <p align="center">
-  <img src="docs/assets/screenshots/framed/macbook-home.png" width="48%" alt="Mac 推荐页与侧边栏、悬浮播放条">
-  <img src="docs/assets/screenshots/framed/macbook-search.png" width="48%" alt="Mac 搜索结果">
+  <img src="docs/assets/screenshots/mac/home.png" width="48%" alt="Mac 推荐页与侧边栏、悬浮播放条">
+  <img src="docs/assets/screenshots/mac/explore.png" width="48%" alt="Mac 探索页">
 </p>
 <p align="center">
-  <img src="docs/assets/screenshots/framed/macbook-player.png" width="48%" alt="Mac 正在播放与同步歌词">
-  <img src="docs/assets/screenshots/framed/macbook-comments.png" width="48%" alt="Mac 正在播放与歌曲评论">
+  <img src="docs/assets/screenshots/mac/lyrics.png" width="48%" alt="Mac 正在播放与同步歌词">
+  <img src="docs/assets/screenshots/mac/comments.png" width="48%" alt="Mac 正在播放与歌曲评论">
 </p>
-<p align="center"><sub>macOS · 推荐 · 搜索 · 正在播放 · 评论</sub></p>
+<p align="center">
+  <img src="docs/assets/screenshots/mac/album.png" width="48%" alt="Mac 专辑页">
+  <img src="docs/assets/screenshots/mac/artist.png" width="48%" alt="Mac 歌手页">
+</p>
+<p align="center"><sub>macOS · 推荐 · 探索 · 正在播放 · 评论 · 专辑 · 歌手</sub></p>
 
 ---
 
 ## 灰色歌曲，也能播放。
 
-无版权或已下架的歌曲不再是一行灰字。Coda 会在其他已启用的音源中自动匹配同一首歌，找到后直接播放，歌单与播放顺序保持不变。
+无版权或已下架的歌曲不再是一行灰字。Coda 会在其他已启用的音源中自动匹配同一首歌，找到后直接播放，歌单与播放顺序保持不变。汽水音乐只给出试听片段时同样自动换源；内置洛雪音源，以 Swift 原生实现，无需 JS 运行时。
+
+## 还有更多
+
+- **Automix**：歌曲之间平滑过渡。
+- **音频频谱**：跟着节拍跳动。
+- **CarPlay**：上车继续听。
+
+## 下载
+
+前往 [Releases](https://github.com/Wow-CaiCai/Coda/releases) 获取最新版本，更新内容见 [CHANGELOG](CHANGELOG.md)。
+
+- **Mac**：使用 ad-hoc 签名，未经公证，首次打开需在「系统设置 › 隐私与安全性」中允许。应用内置自动更新。
+- **iPhone / iPad**：提供未签名 IPA，可通过 AltStore 或 SideStore 安装，并添加源以接收更新。
 
 ## 站在开源的肩膀上
 
@@ -132,5 +207,6 @@
 | [guohuiyuan/music-lib](https://github.com/guohuiyuan/music-lib)                                                                                                                                                                                             | libresoda 的原始实现                    |
 | [jayfunc/BetterLyrics](https://github.com/jayfunc/BetterLyrics)                                                                                                                                                                                             | 流光背景与歌词高亮的视觉参考            |
 | [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg)                                                                                                                                                                                                           | MP4 重排思路                            |
+| [pdone/lx-music-source](https://github.com/pdone/lx-music-source)                                                                                                                                                                                           | 洛雪音源解析接口                        |
 
 Coda 以 [AGPL-3.0-or-later](LICENSE) 发布；部分改编文件保留原许可证，并在文件头以 `SPDX-License-Identifier` 标明。

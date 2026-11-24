@@ -19,7 +19,7 @@ struct HomeCoverShelf<Item: Identifiable, Card: View>: View {
                 }
             }
         } placeholder: {
-            HorizontalCardLoadingColumn(rows: 2, width: cardWidth)
+            HorizontalCardLoadingColumn(rows: 2, width: cardWidth, cornerRadius: HomeLayout.coverCornerRadius)
         }
         .compatScrollClipDisabled()
     }

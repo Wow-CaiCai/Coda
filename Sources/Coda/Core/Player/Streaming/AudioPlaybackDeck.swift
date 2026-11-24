@@ -104,6 +104,9 @@ final class AudioPlaybackDeck: NSObject, @preconcurrency AudioPlayerDelegate {
 
     func play() {
         wantsPlayback = true
+        #if os(iOS)
+        zzTrace("deck.play playerState=\(String(describing: player?.state)) progress=\(String(describing: player?.progress))")
+        #endif
         if player?.state == .stopped { seek(to: 0) }
         player?.resume()
         // resume() can fail while the system audio session is unavailable.
@@ -196,6 +199,9 @@ final class AudioPlaybackDeck: NSObject, @preconcurrency AudioPlayerDelegate {
 
     func audioPlayerDidFinishPlaying(player: AudioPlayer, entryId: AudioEntryId,
                                      stopReason: AudioPlayerStopReason, progress: Double, duration: Double) {
+        #if os(iOS)
+        zzTrace("deck.didFinish reason=\(stopReason) progress=\(progress) duration=\(duration) same=\(player === self.player) entryMatch=\(currentEntryID == entryId)")
+        #endif
         guard player === self.player, currentEntryID == entryId, stopReason == .eof else { return }
         finishedPosition = progress
         isSeeking = false

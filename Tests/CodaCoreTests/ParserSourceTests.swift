@@ -2,21 +2,21 @@ import Foundation
 import Testing
 @testable import CodaCore
 
-@Suite("LX Music source tests")
-struct LXMusicSourceTests {
+@Suite("Parser source tests")
+struct ParserSourceTests {
     private let query = UnblockQuery(origin: .netease, title: "晴天", artists: ["周杰伦"],
                                      album: "叶惠美", durationMS: 269_000, neteaseID: 186016)
 
-    private func answer(_ json: String) -> LXMusicUnblockSource.Answer? {
-        LXMusicUnblockSource.Answer(Data(json.utf8))
+    private func answer(_ json: String) -> ParserUnblockSource.Answer? {
+        ParserUnblockSource.Answer(Data(json.utf8))
     }
 
     @Test func isAMirrorTriedBeforeThePlatforms() {
-        #expect(AudioSourceID.lxMusic.isMirror)
-        #expect(AudioSourceID.pyncmd.isMirror)
+        #expect(AudioSourceID.parser.isMirror)
+        #expect(AudioSourceID.mirror.isMirror)
         #expect(!AudioSourceID.qq.isMirror)
-        #expect(AudioSourceID.lxMusic.displayName == "洛雪音源")
-        #expect(AudioSourceID(rawValue: "lxmusic") == .lxMusic)
+        #expect(AudioSourceID.parser.displayName == "备用音源")
+        #expect(AudioSourceID(rawValue: "parser") == .parser)
     }
 
     @Test func qishuiRefusalsFallBackToOtherSources() {
@@ -28,21 +28,21 @@ struct LXMusicSourceTests {
     }
 
     @Test func neverAsksForTheHiResPreview() {
-        #expect(LXMusicUnblockSource.level(for: .standard) == "standard")
-        #expect(LXMusicUnblockSource.level(for: .higher) == "exhigh")
-        #expect(LXMusicUnblockSource.level(for: .exhigh) == "exhigh")
-        #expect(LXMusicUnblockSource.level(for: .lossless) == "lossless")
-        #expect(LXMusicUnblockSource.level(for: .hires) == "lossless")
-        #expect(LXMusicUnblockSource.level(for: .jymaster) == "lossless")
+        #expect(ParserUnblockSource.level(for: .standard) == "standard")
+        #expect(ParserUnblockSource.level(for: .higher) == "exhigh")
+        #expect(ParserUnblockSource.level(for: .exhigh) == "exhigh")
+        #expect(ParserUnblockSource.level(for: .lossless) == "lossless")
+        #expect(ParserUnblockSource.level(for: .hires) == "lossless")
+        #expect(ParserUnblockSource.level(for: .jymaster) == "lossless")
     }
 
     @Test func parsesDurationAndSize() {
-        #expect(LXMusicUnblockSource.Answer.durationMS("4分29秒") == 269_000)
-        #expect(LXMusicUnblockSource.Answer.durationMS("1时2分3秒") == 3_723_000)
-        #expect(LXMusicUnblockSource.Answer.durationMS("") == nil)
-        #expect(LXMusicUnblockSource.Answer.byteCount("52.83 MB") == 52.83 * 1024 * 1024)
-        #expect(LXMusicUnblockSource.Answer.byteCount("512 KB") == 524_288.0)
-        #expect(LXMusicUnblockSource.Answer.byteCount("0B") == nil)
+        #expect(ParserUnblockSource.Answer.durationMS("4分29秒") == 269_000)
+        #expect(ParserUnblockSource.Answer.durationMS("1时2分3秒") == 3_723_000)
+        #expect(ParserUnblockSource.Answer.durationMS("") == nil)
+        #expect(ParserUnblockSource.Answer.byteCount("52.83 MB") == 52.83 * 1024 * 1024)
+        #expect(ParserUnblockSource.Answer.byteCount("512 KB") == 524_288.0)
+        #expect(ParserUnblockSource.Answer.byteCount("0B") == nil)
     }
 
     @Test func acceptsTheSameRecordingFromAnotherPlatform() throws {
@@ -80,12 +80,12 @@ struct LXMusicSourceTests {
 
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CODA_UNBLOCK_LIVE"] == "1"))
     func liveResolvesAGrayNeteaseTrack() async throws {
-        let source = LXMusicUnblockSource()
+        let source = ParserUnblockSource()
         let stream = try #require(try await source.resolve(query, quality: .lossless))
-        print("live lxmusic host=\(stream.url.host ?? "") quality=\(stream.quality?.rawValue ?? "nil") title=\(stream.title ?? "")")
+        print("live parser host=\(stream.url.host ?? "") quality=\(stream.quality?.rawValue ?? "nil") title=\(stream.title ?? "")")
         #expect(stream.quality == .lossless || stream.quality == .hires)
         let tiers = try await source.qualityOptions(query)
-        print("live lxmusic tiers=\(tiers.map(\.title))")
+        print("live parser tiers=\(tiers.map(\.title))")
         #expect(tiers.count > 1)
     }
 }

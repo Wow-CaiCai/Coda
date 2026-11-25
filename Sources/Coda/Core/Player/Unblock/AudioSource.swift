@@ -1,11 +1,11 @@
 import Foundation
 
-/// Where a gray track's replacement audio can come from: the pyncmd mirror of
-/// NetEase, the LX Music parsing services, or one of the app's own platforms
+/// Where a gray track's replacement audio can come from: a NetEase mirror,
+/// third-party parsing services, or one of the app's own platforms
 /// other than the track's own.
 enum AudioSourceID: String, CaseIterable, Hashable, Sendable {
-    case pyncmd
-    case lxMusic = "lxmusic"
+    case mirror
+    case parser
     case netease
     case qq
     case kugou
@@ -22,7 +22,7 @@ enum AudioSourceID: String, CaseIterable, Hashable, Sendable {
 
     var platform: MusicProvider? {
         switch self {
-        case .pyncmd, .lxMusic: return nil
+        case .mirror, .parser: return nil
         case .netease: return .netease
         case .qq: return .qq
         case .kugou: return .kugou
@@ -32,8 +32,7 @@ enum AudioSourceID: String, CaseIterable, Hashable, Sendable {
 
     var displayName: String {
         switch self {
-        case .pyncmd: return "pyncmd"
-        case .lxMusic: return "洛雪音源"
+        case .mirror, .parser: return "备用音源"
         default: return platform?.name ?? rawValue
         }
     }

@@ -54,7 +54,7 @@ let package = Package(
             ],
             path: "Sources/Coda",
             exclude: ["Resources"],
-            resources: [.copy("Features/Home/QishuiModeIcons")],
+            resources: [.copy("Features/Home/QishuiModeIcons"), .copy("Core/API/QishuiVerificationAssets")],
             swiftSettings: [
                 .swiftLanguageMode(.v5),
             ]

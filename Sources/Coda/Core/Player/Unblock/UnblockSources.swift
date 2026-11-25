@@ -59,7 +59,7 @@ actor UnblockMatchCache {
 // MARK: - NetEase song lookup
 
 /// Finds the NetEase song ID of a track from another platform. Shared by the
-/// pyncmd and NetEase sources so one gray track searches NetEase only once.
+/// mirror and NetEase sources so one gray track searches NetEase only once.
 actor NeteaseSongLookup {
     static let shared = NeteaseSongLookup()
     private static let lifetime: TimeInterval = 10 * 60
@@ -100,10 +100,10 @@ actor NeteaseSongLookup {
     }
 }
 
-// MARK: - pyncmd
+// MARK: - Mirror
 
-struct PyncmdUnblockSource: UnblockSource {
-    let id = AudioSourceID.pyncmd
+struct MirrorUnblockSource: UnblockSource {
+    let id = AudioSourceID.mirror
     private let httpClient: AudioSourceClient
 
     init(httpClient: AudioSourceClient = .shared) {
@@ -113,7 +113,7 @@ struct PyncmdUnblockSource: UnblockSource {
     func isAvailable() async -> Bool { true }
     func isSignedIn() async -> Bool { false }
 
-    /// pyncmd's `br` tiers: 128/192/320 kbps MP3, 740/999 the best FLAC it has.
+    /// The mirror's `br` tiers: 128/192/320 kbps MP3, 740/999 the best FLAC it has.
     static func requestedBitrate(for quality: AudioQuality) -> Int {
         switch basicQuality(quality) {
         case .standard: return 128

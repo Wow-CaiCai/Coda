@@ -505,6 +505,56 @@ struct QishuiMusicTests {
         #expect(!QishuiPassportSession.isOfficialVerificationURL(URL(string: "https://verify.zijieapi.com.example.com/component.js")!))
         #expect(!QishuiPassportSession.isOfficialVerificationURL(URL(string: "http://verify.zijieapi.com/component.js")!))
     }
+    @Test func verificationURLAcceptsStringAndHostPathDecisions() {
+        #expect(QishuiPassportSession.verificationURL("https://lf3-cdn.bytegoofy.com/verify.js")?.absoluteString == "https://lf3-cdn.bytegoofy.com/verify.js")
+        #expect(QishuiPassportSession.verificationURL("/passport/verify.js")?.absoluteString == "https://api.qishui.com/passport/verify.js")
+        #expect(QishuiPassportSession.verificationURL(["host": "lf3-cdn.bytegoofy.com", "path": "obj/verify.js"])?.absoluteString == "https://lf3-cdn.bytegoofy.com/obj/verify.js")
+        #expect(QishuiPassportSession.verificationURL(["host": "https://sf.zijieapi.com", "path": "/v.js"])?.absoluteString == "https://sf.zijieapi.com/v.js")
+        #expect(QishuiPassportSession.verificationURL(["host": "evil.example", "path": "/v.js"]) == nil)
+        #expect(QishuiPassportSession.verificationURL(["host": "api.qishui.com@evil.example", "path": "/v.js"]) == nil)
+        #expect(QishuiPassportSession.verificationURL(["host": "evil.example/x.zijieapi.com", "path": "/v.js"]) == nil)
+        #expect(QishuiPassportSession.verificationURL("https://api.qishui.com:443@evil.example/v.js") == nil)
+        #expect(QishuiPassportSession.verificationURL(nil) == nil)
+        #expect(QishuiPassportSession.verificationURL(42) == nil)
+    }
+    @Test func verificationBridgeOnlyForwardsAllowlistedRequests() throws {
+        #expect(QishuiPassportSession.isBridgeableVerificationURL(URL(string: "https://auth.zijieapi.com/a")!))
+        #expect(QishuiPassportSession.isBridgeableVerificationURL(URL(string: "https://bff-pc.qishui.com/b")!))
+        #expect(!QishuiPassportSession.isBridgeableVerificationURL(URL(string: "https://api.qishui.com/passport/web/x")!))
+        #expect(!QishuiPassportSession.isBridgeableVerificationURL(URL(string: "http://auth.zijieapi.com/a")!))
+        #expect(!QishuiPassportSession.isBridgeableVerificationURL(URL(string: "https://auth.zijieapi.com:8443/a")!))
+        #expect(!QishuiPassportSession.isBridgeableVerificationURL(URL(string: "https://x@auth.zijieapi.com/a")!))
+        #expect(QishuiVerificationBridge.request(from: ["url": "https://evil.example/a"]) == nil)
+        #expect(QishuiVerificationBridge.request(from: ["url": "https://auth.zijieapi.com/a", "method": "DELETE"]) == nil)
+        let request = try #require(QishuiVerificationBridge.request(from: [
+            "url": "https://auth.zijieapi.com/a", "method": "post", "body": "x=1",
+            "headers": ["Cookie": "stolen=1", "X-Tt-Passport-Csrf-Token": "c", "Origin": "https://evil.example"]]))
+        #expect(request.httpMethod == "POST" && request.httpBody == Data("x=1".utf8))
+        #expect(request.value(forHTTPHeaderField: "Cookie") == nil)
+        #expect(request.value(forHTTPHeaderField: "X-Tt-Passport-Csrf-Token") == "c")
+        #expect(request.value(forHTTPHeaderField: "Origin") == "https://api.qishui.com")
+        let cookie = { (domain: String) in HTTPCookie(properties: [.domain: domain, .path: "/", .name: "n", .value: "v"])! }
+        let matched = QishuiVerificationBridge.cookies([cookie(".zijieapi.com"), cookie("api.qishui.com"), cookie(".evilzijieapi.com")], matching: URL(string: "https://auth.zijieapi.com/a")!)
+        #expect(matched.map(\.domain) == [".zijieapi.com"])
+    }
+    @Test func verificationDiagnosticOmitsQueryValues() throws {
+        let detail = QishuiPassportSession.decisionDiagnostic(["url": "https://sf.zijieapi.com/v.js?ticket=SECRET", "verify_ticket": "SECRET", "verify_from": "verify"])
+        #expect(detail["urlHost"] as? String == "sf.zijieapi.com" && detail["urlPath"] as? String == "/v.js")
+        #expect(detail["urlAccepted"] as? Bool == true && detail["keys"] as? [String] == ["url", "verify_from", "verify_ticket"])
+        let object = QishuiPassportSession.decisionDiagnostic(["url": ["host": "a.bytegoofy.com", "path": "/x.js?t=SECRET"]])
+        #expect(object["urlType"] as? String == "object" && object["urlPath"] as? String == "/x.js")
+        #expect(QishuiPassportSession.decisionDiagnostic([:])["urlType"] as? String == "missing")
+        let text = String(describing: [detail, object])
+        #expect(!text.contains("SECRET"))
+        let error = NSError(domain: "WKErrorDomain", code: 4, userInfo: ["WKJavaScriptExceptionMessage": "Error: load https://a.com/x.js?token=SECRET failed"])
+        #expect(QishuiPassportSession.diagnosticText(error) == "Error: load https://a.com/x.js failed")
+    }
+    @Test func bundledReactMatchesItsPinnedHashes() throws {
+        for asset in QishuiPassportSession.reactAssets {
+            #expect(try QishuiPassportSession.bundledScript(asset.name, sha256: asset.sha256).contains("React v17.0.2"))
+        }
+        #expect(throws: Error.self) { try QishuiPassportSession.bundledScript("react.production.min", sha256: "wrong") }
+    }
     @Test func securitySeedAndQRExpiryFollowTheProtocol() throws {
         let seed = try QishuiPassportSession.securitySeed()
         #expect(seed.count == 120 && seed.hasSuffix("=="))
@@ -865,7 +915,7 @@ struct QishuiMusicTests {
         #expect(query.neteaseID == nil)
         // Every other source is excluded, so nothing may be tried — Qishui least of all.
         let result = await UnblockResolver.resolve(track, quality: .exhigh,
-                                                   excluding: [.pyncmd, .lxMusic, .netease, .qq, .kugou])
+                                                   excluding: [.mirror, .parser, .netease, .qq, .kugou])
         #expect(result.source == nil && result.attemptedSources.isEmpty)
     }
 

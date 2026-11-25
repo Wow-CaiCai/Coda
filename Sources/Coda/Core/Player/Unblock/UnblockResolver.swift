@@ -2,7 +2,7 @@ import Foundation
 import os.log
 
 /// Finds a full-length stream for a track its own platform will not play:
-/// pyncmd and the LX Music services first, then the other platforms
+/// the mirror and parsing services first, then the other platforms
 /// (signed-in ones first), with
 /// Qishui last. Lookups run in parallel, but the earliest source in that
 /// order that succeeds always wins, so the result does not depend on timing.
@@ -26,7 +26,7 @@ enum UnblockResolver {
 
     private static let log = Logger(subsystem: "wow.caicai.coda", category: "audio-source")
     private static let parallelSources: [any UnblockSource] = [
-        PyncmdUnblockSource(), LXMusicUnblockSource(), NeteaseUnblockSource(), QQUnblockSource(), KugouUnblockSource(),
+        MirrorUnblockSource(), ParserUnblockSource(), NeteaseUnblockSource(), QQUnblockSource(), KugouUnblockSource(),
     ]
     private static let lastSource: any UnblockSource = QishuiUnblockSource()
 

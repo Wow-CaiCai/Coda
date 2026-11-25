@@ -13,7 +13,7 @@ struct UnblockLiveTests {
         let query = UnblockQuery(origin: .qishui, title: reference.name,
                                  artists: reference.artists.components(separatedBy: " / "),
                                  album: reference.album, durationMS: Int(reference.duration * 1000))
-        let sources: [any UnblockSource] = [PyncmdUnblockSource(), LXMusicUnblockSource(), NeteaseUnblockSource(),
+        let sources: [any UnblockSource] = [MirrorUnblockSource(), ParserUnblockSource(), NeteaseUnblockSource(),
                                             QQUnblockSource(), KugouUnblockSource()]
         var found = 0
         for source in sources {
@@ -26,8 +26,8 @@ struct UnblockLiveTests {
             }
         }
         #expect(found > 0)
-        let tiers = try await PyncmdUnblockSource().qualityOptions(query)
-        print("live pyncmd tiers=\(tiers.map(\.title))")
+        let tiers = try await MirrorUnblockSource().qualityOptions(query)
+        print("live mirror tiers=\(tiers.map(\.title))")
         #expect(tiers.count > 1)
     }
 }

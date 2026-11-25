@@ -65,7 +65,10 @@ private final class QQMusicFeatureFixture: URLProtocol, @unchecked Sendable {
             switch method {
             case "Login" where expiring:
                 #expect(params["refresh_token"] as? String == "fixture-refresh-token")
-                #expect(params["refresh_key"] as? String == "fixture-refresh-key")
+                // QQ (ptlogin) logins carry an empty refresh_key and renew with openid + refresh_token.
+                #expect(["fixture-refresh-key", ""].contains(params["refresh_key"] as? String))
+                #expect(params["openid"] as? String == "fixture-openid")
+                #expect(params["loginMode"] as? Int == 2)
                 data = ["musickey": "renewed-key", "str_musicid": "12345", "loginType": 2]
             case "GetRank":
                 expired = expiring && authst != "renewed-key"
@@ -222,13 +225,15 @@ private final class QQMusicFeatureFixture: URLProtocol, @unchecked Sendable {
 
 @Suite("QQ collection and catalog operations")
 struct QQMusicFeatureTests {
-    private func api(reject: Bool = false, unconfirmed: Bool = false, expiring: Bool = false) -> QQMusicAPI {
-        let auth = QQMusicAuth(persistsSession: false)
+    private func api(reject: Bool = false, unconfirmed: Bool = false, expiring: Bool = false,
+                     extra: [String: String] = [:], authentication: QQMusicAuth? = nil) -> QQMusicAPI {
+        let auth = authentication ?? QQMusicAuth(persistsSession: false)
         var cookies = ["uin": "12345", "qqmusic_key": "fixture-key", "encryptUin": "fixture-encrypted"]
         if expiring {
             cookies.merge(["openid": "fixture-openid", "refresh_token": "fixture-refresh-token",
                            "refresh_key": "fixture-refresh-key"]) { _, new in new }
         }
+        cookies.merge(extra) { _, new in new }
         auth.importCookies(cookies, nickname: "Fixture")
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [QQMusicFeatureFixture.self]
@@ -319,6 +324,32 @@ struct QQMusicFeatureTests {
         let rank = try await api.listeningRank(period: 1)
         #expect(rank.map(\.count) == [7])
         #expect(rank.first?.song.qqMid == "song-mid")
+    }
+    @Test @MainActor func qqScanLoginWithoutRefreshKeyRenewsAheadOfExpiry() async {
+        let auth = QQMusicAuth(persistsSession: false)
+        let created = Int(Date().timeIntervalSince1970) - 70 * 3600
+        let api = api(expiring: true, extra: ["refresh_key": "", "musickeyCreateTime": "\(created)",
+                                              "keyExpiresIn": "259200"], authentication: auth)
+        #expect(auth.canRenewCredential)
+        #expect(auth.nextRenewalCheckDelay() == 60)
+        #expect(await auth.refreshCredentialIfNeeded(api: api))
+        #expect(auth.collectionCredential?.key == "renewed-key")
+        #expect(auth.exportedCredentials["refresh_token"] == "fixture-refresh-token")
+        // The renewed key is dated from now, so the next check waits until its own renewal window.
+        let delay = auth.nextRenewalCheckDelay() ?? 0
+        #expect(delay == 3600)
+        #expect(await auth.refreshCredentialIfNeeded(api: api) == false)
+    }
+    @Test @MainActor func freshKeyIsNotRenewedAndWebCookiesCannotRenew() async {
+        let auth = QQMusicAuth(persistsSession: false)
+        let api = api(expiring: true, extra: ["musickeyCreateTime": "\(Int(Date().timeIntervalSince1970))",
+                                              "keyExpiresIn": "259200"], authentication: auth)
+        #expect(await auth.refreshCredentialIfNeeded(api: api) == false)
+        #expect(auth.collectionCredential?.key == "fixture-key")
+        let web = QQMusicAuth(persistsSession: false)
+        web.importCookies(["uin": "12345", "qqmusic_key": "fixture-key"], nickname: nil)
+        #expect(web.canRenewCredential == false)
+        #expect(web.nextRenewalCheckDelay() == nil)
     }
     @Test func expiredLoginWithoutRefreshTokenAsksForANewScan() async {
         let api = api(reject: true)

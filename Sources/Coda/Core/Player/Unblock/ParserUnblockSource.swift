@@ -1,10 +1,9 @@
 import Foundation
 
-/// The parsing services behind the LX Music custom sources collected in
-/// pdone/lx-music-source, called directly instead of running their scripts.
+/// Third-party parsing services, called directly over HTTP.
 /// Each endpoint takes one platform's song ID and answers with a stream that
 /// may come from another platform, so the returned song is checked again.
-struct LXMusicEndpoint: Sendable {
+struct ParserEndpoint: Sendable {
     enum Platform: String, Sendable {
         /// NetEase song ID.
         case wy
@@ -32,21 +31,20 @@ struct LXMusicEndpoint: Sendable {
     }
 
     /// Endpoints confirmed to return full-length streams; add a row to add one.
-    static let all: [LXMusicEndpoint] = [
-        // Used by the fish_music source.
-        LXMusicEndpoint(name: "haitang-wy", platform: .wy,
-                        hosts: ["musicapi.haitangw.net", "music.haitangw.cc"], path: "/music/wy_song_kw.php"),
-        LXMusicEndpoint(name: "haitang-kg", platform: .kg,
-                        hosts: ["musicapi.haitangw.net", "music.haitangw.cc"], path: "/music/kg_song_kw.php"),
+    static let all: [ParserEndpoint] = [
+        ParserEndpoint(name: "wy", platform: .wy,
+                       hosts: ["musicapi.haitangw.net", "music.haitangw.cc"], path: "/music/wy_song_kw.php"),
+        ParserEndpoint(name: "kg", platform: .kg,
+                       hosts: ["musicapi.haitangw.net", "music.haitangw.cc"], path: "/music/kg_song_kw.php"),
     ]
 }
 
-struct LXMusicUnblockSource: UnblockSource {
-    let id = AudioSourceID.lxMusic
+struct ParserUnblockSource: UnblockSource {
+    let id = AudioSourceID.parser
     private let httpClient: AudioSourceClient
-    private let endpoints: [LXMusicEndpoint]
+    private let endpoints: [ParserEndpoint]
 
-    init(httpClient: AudioSourceClient = .shared, endpoints: [LXMusicEndpoint] = LXMusicEndpoint.all) {
+    init(httpClient: AudioSourceClient = .shared, endpoints: [ParserEndpoint] = ParserEndpoint.all) {
         self.httpClient = httpClient
         self.endpoints = endpoints
     }
@@ -91,7 +89,7 @@ struct LXMusicUnblockSource: UnblockSource {
         return options
     }
 
-    private func songID(for platform: LXMusicEndpoint.Platform, query: UnblockQuery) async throws -> String? {
+    private func songID(for platform: ParserEndpoint.Platform, query: UnblockQuery) async throws -> String? {
         switch platform {
         case .wy:
             return try await NeteaseSongLookup.shared.songID(for: query).map(String.init)
@@ -104,7 +102,7 @@ struct LXMusicUnblockSource: UnblockSource {
         }
     }
 
-    private func resolve(_ endpoint: LXMusicEndpoint, songID: String, level: String,
+    private func resolve(_ endpoint: ParserEndpoint, songID: String, level: String,
                          query: UnblockQuery) async throws -> UnblockStream? {
         var lastError: Error?
         for host in endpoint.hosts {

@@ -32,7 +32,8 @@
 | 仓库 | 版本 | 许可证 | 用途 |
 | --- | --- | --- | --- |
 | [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle) | 2.9.x | MIT 类（见上游 LICENSE） | macOS 自动更新（Swift Package 依赖） |
-| 字节跳动浏览器安全 SDK（`bdms.js`）、React / ReactDOM 17.0.2 | — | 各自条款 / MIT | 汽水音乐登录页运行时加载，未复制进仓库 |
+| 字节跳动浏览器安全 SDK（`bdms.js`） | — | 各自条款 | 汽水音乐登录页运行时加载，未复制进仓库 |
+| [facebook/react](https://github.com/facebook/react) React / ReactDOM | 17.0.2 UMD 生产版 | MIT（[React-LICENSE](React-LICENSE)） | 原样内置于 `Core/API/QishuiVerificationAssets`，供汽水二次验证组件使用 |
 
 ## 4. 仅参考接口协议（未复制源码）
 

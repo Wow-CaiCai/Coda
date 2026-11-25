@@ -398,16 +398,10 @@ struct SearchView: View {
                 }
                 #endif
                 if !searchKeywords.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(searchKeywords, id: \.self) { keyword in
-                                Button(keyword) { applyKeyword(keyword) }
-                                    .buttonStyle(.bordered)
-                            }
-                        }
-                        .padding(.horizontal, Theme.Layout.contentInset)
-                    }
-                    .accessibilityLabel(searchText.isEmpty ? "热搜" : "搜索建议")
+                    keywordChips
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("searchKeywordChips")
+                        .accessibilityLabel(searchText.isEmpty ? "热搜" : "搜索建议")
                 }
                 if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
                     tabPicker
@@ -433,6 +427,23 @@ struct SearchView: View {
                 PlayerClearanceSpacer()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Shared scrolling gives the row room for a finger's contact radius on
+    /// iPadOS 16; the minimum width and spacing keep one finger contact from
+    /// also covering the neighbouring chip, which iOS 16 resolves as no tap.
+    private var keywordChips: some View {
+        ScenePreservingScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(searchKeywords, id: \.self) { keyword in
+                    Button { applyKeyword(keyword) } label: {
+                        Text(keyword).frame(minWidth: 52)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding(.horizontal, Theme.Layout.contentInset)
         }
     }
 

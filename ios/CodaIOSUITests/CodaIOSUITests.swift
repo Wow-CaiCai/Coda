@@ -772,6 +772,124 @@ final class CodaIOSUITests: XCTestCase {
         }
     }
 
+    /// iPadOS 16 resolves a finger tap using its contact radius. Inside a
+    /// short horizontal scroll view, or between closely packed buttons, the
+    /// tap used to be dropped while an Apple Pencil tap still worked. XCTest's
+    /// device taps carry a finger radius, so these exercise the same path.
+    @MainActor
+    func testIPadSearchKeywordChipsRespondToTouch() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("This regression covers the iPad search page.")
+        }
+        for index in [0, 1] {
+            let app = launchSearchPage()
+            defer { app.terminate() }
+            let field = app.textFields["搜索歌曲、歌手、专辑、歌单"]
+            let chips = app.descendants(matching: .any)["searchKeywordChips"].buttons
+            XCTAssertTrue(chips.firstMatch.waitForExistence(timeout: 15))
+            // A chip between two neighbours is the harder case, when the service offers one.
+            if index > 0 && chips.count <= index { continue }
+            assertChipTap(index: index, in: app, field: field, name: "Hot search chip \(index)")
+            assertChipTap(index: 0, in: app, field: field, name: "Suggestion chip after \(index)")
+        }
+    }
+
+    @MainActor
+    func testIPadSearchShelfRespondsToTouch() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("This regression covers the iPad search page.")
+        }
+        for target in ["header", "cover", "title"] {
+            let app = launchSearchPage()
+            defer { app.terminate() }
+            let field = app.textFields["搜索歌曲、歌手、专辑、歌单"]
+            // The first loaded shelf and the header directly above it.
+            let firstCard = app.buttons.matching(NSPredicate { object, _ in
+                guard let item = object as? XCUIElementAttributes else { return false }
+                return item.frame.width > 150 && item.frame.height > 150
+            }).firstMatch
+            XCTAssertTrue(firstCard.waitForExistence(timeout: 20))
+            let buttons = app.buttons.allElementsBoundByIndex
+            let cardFrame = firstCard.frame
+            guard let card = buttons.first(where: { $0.frame == cardFrame }),
+                  let header = buttons.filter({ abs($0.frame.minX - cardFrame.minX) < 4
+                      && $0.frame.maxY <= cardFrame.minY && $0.frame.maxY > cardFrame.minY - 80 })
+                      .max(by: { $0.frame.maxY < $1.frame.maxY }) else {
+                XCTFail("No loaded shelf below a header")
+                continue
+            }
+            print("SEARCH_SHELF \(target) card=\(card.frame) header=\(header.label) \(header.frame)")
+            let element = target == "header" ? header : card
+            // The title sits along the scroll view's bottom edge.
+            let offset = target == "header" ? CGVector(dx: 0.5, dy: 0.5)
+                : target == "cover" ? CGVector(dx: 0.5, dy: 0.4)
+                : CGVector(dx: 0.5, dy: 1 - 10 / card.frame.height)
+            element.coordinate(withNormalizedOffset: offset).tap()
+            let pushed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: field)
+            let result = XCTWaiter.wait(for: [pushed], timeout: 5)
+            attachScreen("Shelf \(target)")
+            XCTAssertEqual(result, .completed, "Shelf \(target) did not open its destination")
+        }
+    }
+
+    /// Only opens the removal confirmation and dismisses it outside the popover.
+    @MainActor
+    func testIPadAccountRemoveButtonRespondsToTouch() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("This regression covers the iPad settings page.")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        defer { app.terminate() }
+        let settings = app.buttons["sidebarSettingsButton"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 15))
+        settings.tap()
+        let remove = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '移除'")).firstMatch
+        guard remove.waitForExistence(timeout: 10) else { throw XCTSkip("No saved account to probe.") }
+        let removeLabel = remove.label
+        print("ACCOUNT_REMOVE frame=\(remove.frame)")
+        remove.tap()
+        let confirm = app.buttons["移除账号"].firstMatch
+        let shown = confirm.waitForExistence(timeout: 4)
+        attachScreen("Account removal confirmation")
+        XCTAssertTrue(shown, "The remove button did not respond")
+        if shown {
+            // Outside the popover: dismiss without choosing an action.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.98)).tap()
+            let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: confirm)
+            XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 4), .completed)
+        }
+        XCTAssertTrue(app.buttons[removeLabel].exists, "The account must remain")
+    }
+
+    @MainActor
+    private func launchSearchPage() -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"]
+        app.launch()
+        XCTAssertTrue(app.buttons["sidebarSettingsButton"].waitForExistence(timeout: 15))
+        app.buttons["探索"].firstMatch.tap()
+        XCTAssertTrue(app.textFields["搜索歌曲、歌手、专辑、歌单"].waitForExistence(timeout: 10))
+        return app
+    }
+
+    @MainActor
+    private func assertChipTap(index: Int, in app: XCUIApplication, field: XCUIElement, name: String) {
+        let chips = app.descendants(matching: .any)["searchKeywordChips"].buttons
+        let chip = chips.element(boundBy: index)
+        guard chip.waitForExistence(timeout: 15) else { return XCTFail("\(name): no chip") }
+        let keyword = chip.label
+        print("SEARCH_CHIP \(name) \(keyword) \(chip.frame)")
+        chip.tap()
+        let applied = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (field.value as? String) == keyword
+        }, object: nil)
+        let result = XCTWaiter.wait(for: [applied], timeout: 5)
+        attachScreen(name)
+        XCTAssertEqual(result, .completed, "\(name): field is \(field.value ?? "nil"), expected \(keyword)")
+    }
+
     @MainActor
     func testIPadMainContentRemainsInteractive() throws {
         let app = XCUIApplication()

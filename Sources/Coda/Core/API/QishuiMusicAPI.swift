@@ -243,7 +243,13 @@ final class QishuiMusicAPI: ObservableObject {
                 guard let transport = passportSession else { throw QishuiPassportError.verificationUnavailable }
                 verificationWebView = transport.verificationView
                 defer { verificationWebView = nil }
-                try await transport.verify(decision, generalParameters: general)
+                do {
+                    try await transport.verify(decision, generalParameters: general)
+                    recordVerificationDiagnostic(transport.verificationDiagnostic)
+                } catch {
+                    recordVerificationDiagnostic(transport.verificationDiagnostic)
+                    throw error
+                }
             }
             try requireQR(token: token, generation: generation)
             var retryForm = form
@@ -1073,6 +1079,18 @@ final class QishuiMusicAPI: ObservableObject {
         entry["msTokenLength"] = passportMSLength ?? 0
         entry["browserInfoPresent"] = (passportBrowserInfoLength ?? 0) > 0
         entry["sessionTokenMatches"] = passportTokenMatches ?? false
+        appendDiagnostic(entry)
+    }
+    private func recordVerificationDiagnostic(_ detail: [String: Any]) {
+        guard diagnostics, !detail.isEmpty else { return }
+        var entry = detail
+        entry["stage"] = "verify-component"
+        entry["step"] = detail["stage"] ?? "unknown"
+        entry["time"] = ISO8601DateFormatter().string(from: now())
+        appendDiagnostic(entry)
+    }
+    private func appendDiagnostic(_ entry: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(entry) else { return }
         diagnosticEvents.append(entry)
         diagnosticEvents = Array(diagnosticEvents.suffix(60))
         let url = CodaPaths.applicationSupport.appendingPathComponent("Diagnostics/qishui-login.json")

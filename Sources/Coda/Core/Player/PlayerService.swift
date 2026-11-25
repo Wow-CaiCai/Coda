@@ -1566,9 +1566,6 @@ final class PlayerService: ObservableObject {
         unblockSource = resolved.unblockSource?.displayName
         externalQualityTitle = resolved.unblockSource?.title
         currentUnblockSourceID = resolved.unblockSource?.id
-        if let source = resolved.unblockSource {
-            ToastCenter.shared.show(String(localized: "已使用 \(source.displayName) 音源"))
-        }
         if resolved.isTrial {
             isTrial = true
             ToastCenter.shared.show(String(localized: "VIP 歌曲，当前为试听片段"))

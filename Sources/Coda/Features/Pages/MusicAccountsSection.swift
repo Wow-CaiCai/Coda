@@ -16,7 +16,9 @@ struct MusicAccountsSection: View {
 
     var body: some View {
         Section("账号管理") {
-            ScrollView(.horizontal, showsIndicators: false) {
+            // Shared scrolling keeps iPadOS 16 finger taps on the cards and
+            // their remove buttons near the row's top and bottom edges.
+            ScenePreservingScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .top, spacing: 12) {
                     ForEach(manager.accounts) { item in accountCard(item) }
                     ForEach(guestProviders) { provider in guestCard(provider) }
@@ -25,6 +27,7 @@ struct MusicAccountsSection: View {
                 .padding(.vertical, 12)
             }
             .listRowInsets(EdgeInsets())
+            .accessibilityIdentifier("musicAccountCards")
             .disabled(manager.isSwitching)
             Menu {
                 ForEach(MusicProvider.allCases) { provider in

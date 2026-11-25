@@ -443,9 +443,9 @@ Y `getTrackDetail/getLyric/getAlbum` 都先调用一次 `fetchLatest()`，缓存
 
 | 项目 | Y | K |
 | --- | --- | --- |
-| 回退实现 | Electron IPC 调用 `@unblockneteasemusic/rust-napi`，源列表、匹配策略与第三方 Cookie 可配置；Web 不走该原生链路 | Swift `UnblockService`，当前顺序为启用的 pyncmd，再酷狗、酷我 |
+| 回退实现 | Electron IPC 调用 `@unblockneteasemusic/rust-napi`，源列表、匹配策略与第三方 Cookie 可配置；Web 不走该原生链路 | Swift `UnblockService`，当前顺序为启用的网易云镜像，再酷狗、酷我 |
 | 网易云失败触发 | 缓存 → 网易云 → 原生第三方回退；登录态无 URL/试听会返回空源 | 网易云没有 URL或仅试听时可尝试启用的第三方来源；完整顺序还受下载、缓存及平台策略影响 |
-| pyncmd 的含义 | 不以此命名固定专用入口 | 当前代码实际请求 `music-api.gdstudio.xyz/api.php`，传 `types=url,source=netease,id,br=320`；这是外部服务，不是网易云官方 URL 接口 |
+| 网易云镜像的含义 | 无对应固定专用入口 | 当前代码实际请求 `music-api.gdstudio.xyz/api.php`，传 `types=url,source=netease,id,br=320`；这是外部服务，不是网易云官方 URL 接口 |
 | 数据归属 | 第三方返回 URL 仍是第三方契约 | 有独立 source 标识与匹配/缓存处理，不能当作网易云官方实际音质返回 |
 
 不要将两端第三方取到的可播放 URL 用作“网易云同一账号官方接口允许下载”的证据。

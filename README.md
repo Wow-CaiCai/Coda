@@ -158,17 +158,7 @@
 </p>
 <p align="center"><sub>macOS · 推荐 · 探索 · 正在播放 · 评论 · 专辑 · 歌手</sub></p>
 
----
-
-## 灰色歌曲，也能播放。
-
-无版权或已下架的歌曲不再是一行灰字。Coda 会在其他已启用的音源中自动匹配同一首歌，找到后直接播放，歌单与播放顺序保持不变。汽水音乐只给出试听片段时同样自动换源；内置洛雪音源，以 Swift 原生实现，无需 JS 运行时。
-
-## 还有更多
-
-- **Automix**：歌曲之间平滑过渡。
-- **音频频谱**：跟着节拍跳动。
-- **CarPlay**：上车继续听。
+## 还有更多内容等你探索
 
 ## 下载
 
@@ -179,34 +169,28 @@
 
 ## 站在开源的肩膀上
 
-以下开源仓库让 Coda 成为可能：
+以下开源仓库让 Coda 成为可能；方式为「参考」的仓库仅作为接口协议或视觉参考，未复制源码：
 
 
-| 仓库                                                                                                                                                                                            | 在 Coda 中的作用             |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| [missuo/kumone](https://github.com/missuo/kumone)                                                                                                                                               | 上游项目                     |
-| [youshen2/MeloX](https://github.com/youshen2/MeloX)                                                                                                                                             | 逐字歌词解析、同步与滚动动效 |
-| [dimitris-c/AudioStreaming](https://github.com/dimitris-c/AudioStreaming)                                                                                                                       | iOS 流式播放                 |
-| [XIaodou0416/Beans-Music](https://github.com/XIaodou0416/Beans-Music)                                                                                                                           | QQ 音乐、酷狗音乐接口与登录  |
-| [WXRIW/Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)                                                                                                                 | 多平台歌词获取与 KRC 解码    |
-| [guowenye/qishui-api](https://github.com/guowenye/qishui-api) · [sodahub-org/libresoda](https://github.com/sodahub-org/libresoda) · [sodahub-org/sodam](https://github.com/sodahub-org/sodam) | 汽水音乐接口、播放与音频解密 |
-| [yakult-green-tea/qq-music-api](https://github.com/yakult-green-tea/qq-music-api) · [jixunmoe/qmweb-sign](https://github.com/jixunmoe/qmweb-sign)                                              | QQ 音乐收藏操作与请求签名    |
-| [NeteaseCloudMusicApiEnhanced/api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)                                                                                       | 网易云音乐听歌记录上报       |
-| [lucide-icons/lucide](https://github.com/lucide-icons/lucide)                                                                                                                                   | 一些界面图标                 |
-| [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle)                                                                                                                           | macOS 自动更新               |
-
-以下仓库作为接口协议或视觉参考，未复制源码：
-
-
-| 仓库                                                                                                                                                                                                                                                        | 参考内容                                |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi) · [moli-lihuashi/Mineradio-Vision](https://github.com/moli-lihuashi/Mineradio-Vision) · [1970905901/kgka_Music_hl](https://github.com/1970905901/kgka_Music_hl)                           | 酷狗歌单、云盘、听歌历史与会员接口      |
-| [jsososo/QQMusicApi](https://github.com/jsososo/QQMusicApi) · [Yyyangshenghao/simple-music](https://github.com/Yyyangshenghao/simple-music) · [GitHub-ZC/wp_MusicApi](https://github.com/GitHub-ZC/wp_MusicApi)                                           | QQ 音乐歌单、歌手、专辑、搜索与播放接口 |
-| [MeoProject/lx-music-api-server](https://github.com/MeoProject/lx-music-api-server) · [chongya369/qqmusic-api-py](https://github.com/chongya369/qqmusic-api-py)                                                                                            | QQ 音乐会员身份                         |
-| [XxHuberrr/Mineradio-paused](https://github.com/XxHuberrr/Mineradio-paused) · [zihe114514/qishui-reverse-report](https://github.com/zihe114514/qishui-reverse-report) · [Px-asen/Twilight-Echo-plugins](https://github.com/Px-asen/Twilight-Echo-plugins) | 汽水音乐登录与二次验证流程              |
-| [guohuiyuan/music-lib](https://github.com/guohuiyuan/music-lib)                                                                                                                                                                                             | libresoda 的原始实现                    |
-| [jayfunc/BetterLyrics](https://github.com/jayfunc/BetterLyrics)                                                                                                                                                                                             | 流光背景与歌词高亮的视觉参考            |
-| [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg)                                                                                                                                                                                                           | MP4 重排思路                            |
-| [pdone/lx-music-source](https://github.com/pdone/lx-music-source)                                                                                                                                                                                           | 洛雪音源解析接口                        |
+| 仓库                                                                                                                                                                                                                                                        | 在 Coda 中的作用                        | 方式 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------ |
+| [missuo/kumone](https://github.com/missuo/kumone)                                                                                                                                                                                                           | 上游项目                                | 使用 |
+| [youshen2/MeloX](https://github.com/youshen2/MeloX)                                                                                                                                                                                                         | 逐字歌词解析、同步与滚动动效            | 使用 |
+| [dimitris-c/AudioStreaming](https://github.com/dimitris-c/AudioStreaming)                                                                                                                                                                                   | iOS 流式播放                            | 使用 |
+| [XIaodou0416/Beans-Music](https://github.com/XIaodou0416/Beans-Music)                                                                                                                                                                                       | QQ 音乐、酷狗音乐接口与登录             | 使用 |
+| [WXRIW/Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)                                                                                                                                                                             | 多平台歌词获取与 KRC 解码               | 使用 |
+| [guowenye/qishui-api](https://github.com/guowenye/qishui-api) · [sodahub-org/libresoda](https://github.com/sodahub-org/libresoda) · [sodahub-org/sodam](https://github.com/sodahub-org/sodam)                                                             | 汽水音乐接口、播放与音频解密            | 使用 |
+| [yakult-green-tea/qq-music-api](https://github.com/yakult-green-tea/qq-music-api) · [jixunmoe/qmweb-sign](https://github.com/jixunmoe/qmweb-sign)                                                                                                          | QQ 音乐收藏操作与请求签名               | 使用 |
+| [NeteaseCloudMusicApiEnhanced/api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)                                                                                                                                                   | 网易云音乐听歌记录上报                  | 使用 |
+| [lucide-icons/lucide](https://github.com/lucide-icons/lucide)                                                                                                                                                                                               | 一些界面图标                            | 使用 |
+| [sparkle-project/Sparkle](https://github.com/sparkle-project/Sparkle)                                                                                                                                                                                       | macOS 自动更新                          | 使用 |
+| [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi) · [moli-lihuashi/Mineradio-Vision](https://github.com/moli-lihuashi/Mineradio-Vision) · [1970905901/kgka_Music_hl](https://github.com/1970905901/kgka_Music_hl)                           | 酷狗歌单、云盘、听歌历史与会员接口      | 参考 |
+| [jsososo/QQMusicApi](https://github.com/jsososo/QQMusicApi) · [Yyyangshenghao/simple-music](https://github.com/Yyyangshenghao/simple-music) · [GitHub-ZC/wp_MusicApi](https://github.com/GitHub-ZC/wp_MusicApi)                                           | QQ 音乐歌单、歌手、专辑、搜索与播放接口 | 参考 |
+| [MeoProject/lx-music-api-server](https://github.com/MeoProject/lx-music-api-server) · [chongya369/qqmusic-api-py](https://github.com/chongya369/qqmusic-api-py)                                                                                            | QQ 音乐会员身份                         | 参考 |
+| [XxHuberrr/Mineradio-paused](https://github.com/XxHuberrr/Mineradio-paused) · [zihe114514/qishui-reverse-report](https://github.com/zihe114514/qishui-reverse-report) · [Px-asen/Twilight-Echo-plugins](https://github.com/Px-asen/Twilight-Echo-plugins) | 汽水音乐登录与二次验证流程              | 参考 |
+| [guohuiyuan/music-lib](https://github.com/guohuiyuan/music-lib)                                                                                                                                                                                             | libresoda 的原始实现                    | 参考 |
+| [jayfunc/BetterLyrics](https://github.com/jayfunc/BetterLyrics)                                                                                                                                                                                             | 流光背景与歌词高亮的视觉参考            | 参考 |
+| [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg)                                                                                                                                                                                                           | MP4 重排思路                            | 参考 |
+| [pdone/lx-music-source](https://github.com/pdone/lx-music-source)                                                                                                                                                                                           | 洛雪音源解析接口                        | 参考 |
 
 Coda 以 [AGPL-3.0-or-later](LICENSE) 发布；部分改编文件保留原许可证，并在文件头以 `SPDX-License-Identifier` 标明。

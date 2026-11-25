@@ -25,11 +25,11 @@ struct QQMusicCollectionCredential: Equatable {
     }
 }
 
-/// QQ rejected the saved login (1000 on musicu, 4000 on the web fcgi endpoints).
+/// QQ rejected the saved login (1000 / 104400 / 104401 on musicu, 4000 on the web fcgi endpoints).
 enum QQMusicSessionError: LocalizedError {
     case expired
 
-    static func isExpiredCode(_ code: Int) -> Bool { code == 1000 || code == 4000 }
+    static func isExpiredCode(_ code: Int) -> Bool { [1000, 4000, 104400, 104401].contains(code) }
 
     var errorDescription: String? { "QQ 音乐登录已过期，请重新扫码登录" }
 }

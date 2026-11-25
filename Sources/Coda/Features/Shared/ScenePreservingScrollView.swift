@@ -21,6 +21,18 @@ struct ScenePreservingScrollView<Content: View>: View {
     private var allowsChromeOverflow: Bool {
         UIDevice.current.userInterfaceIdiom == .pad && !compactWindowLayout && iPadChrome == .legacy && mainColumnGeometry != nil
     }
+
+    /// iOS 16 drops a finger tap inside a nested horizontal scroll view when
+    /// the touch's contact radius (about 30pt on iPad) reaches past the scroll
+    /// view's top or bottom edge; a Pencil tap has no radius and still works.
+    /// Transparent room inside the scroll view, cancelled by the same negative
+    /// padding outside, keeps the layout while every finger contact on the
+    /// content fits within the scroll view.
+    private var fingerTouchClearance: CGFloat {
+        guard axes == .horizontal else { return 0 }
+        if #available(iOS 17.0, *) { return 0 }
+        return 44
+    }
     #endif
 
     init(_ axes: Axis.Set = .vertical, showsIndicators: Bool = true, isPrimaryContent: Bool = true,
@@ -43,9 +55,11 @@ struct ScenePreservingScrollView<Content: View>: View {
                     store: axes.contains(.vertical) ? scrollStore : nil, page: scrollPage,
                     isPrimaryContent: isPrimaryContent && axes == .vertical,
                     allowsChromeOverflow: allowsChromeOverflow))
+                .padding(.vertical, fingerTouchClearance)
                 #endif
         }
         #if os(iOS)
+        .padding(.vertical, -fingerTouchClearance)
         .modifier(IPadScrollOverflow(enabled: allowsChromeOverflow))
         #elseif os(macOS)
         .modifier(DesktopScrollOverflow(enabled: mainColumnGeometry != nil && !compactWindowLayout))

@@ -1342,7 +1342,6 @@ final class PlayerService: ObservableObject {
         )
         guard case .loaded = loadResult else { return false }
 
-        ToastCenter.shared.show(String(localized: "已使用 \(unblocked.displayName) 音源"))
         return true
     }
 

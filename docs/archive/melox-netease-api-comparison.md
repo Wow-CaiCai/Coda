@@ -345,7 +345,7 @@ Action 类型响应除了 code 校验，还检查 data.result/success 是否显�
 | `sendSongComment` | E /resource/comments/add 或 /reply | M 楼层回复读取不等于发送回复 |
 | `deleteSongComment` | E /resource/comments/delete | K 已有写接口 |
 | 独立下载资源契约 | E /song/enhance/download/url/v1 + 本地严格验证 | 路径两边都有；K 额外要求文件摘要、时长等信息 |
-| 第三方音源回退 | pyncmd、酷狗、酷我等外部服务 | M 所查 playbackSource 无同样的灰歌第三方音频解析链；QQ 歌词来源不等于 QQ 音源 |
+| 第三方音源回退 | 网易云镜像、酷狗、酷我等外部服务 | M 所查 playbackSource 无同样的灰歌第三方音频解析链；QQ 歌词来源不等于 QQ 音源 |
 
 ## 8. macOS 与 Watch 不能直接套用 iOS 结论
 

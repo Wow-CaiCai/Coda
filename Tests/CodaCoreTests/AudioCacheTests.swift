@@ -49,7 +49,7 @@ struct AudioCacheTests {
 
     @Test func reportedBitrateIsKeptAndOlderMetadataStillDecodes() throws {
         let metadata = AudioCacheMetadata(trackID: 9, requestedQuality: "lossless", servedQuality: "lossless",
-                                          source: .unblock("pyncmd"), contentType: nil, fileName: "9.flac",
+                                          source: .unblock("备用音源"), contentType: nil, fileName: "9.flac",
                                           byteCount: 1, completedAt: Date(timeIntervalSince1970: 0),
                                           servedBitrate: 918_000)
         let roundTrip = try JSONDecoder().decode(AudioCacheMetadata.self, from: JSONEncoder().encode(metadata))

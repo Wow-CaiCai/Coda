@@ -157,6 +157,7 @@ final class QQMusicAuth: ObservableObject {
     }
 
     func logout() {
+        renewalRetryAt = nil
         qrGeneration = UUID()
         handshakeCookies = []
         cookies = [:]
@@ -175,6 +176,7 @@ final class QQMusicAuth: ObservableObject {
     func importCookies(_ dict: [String: String], nickname: String?) {
         guard !dict.isEmpty else { return }
         cookies = dict
+        renewalRetryAt = nil
         let resolvedNickname = nickname ?? Self.fallbackNickname(dict)
         updatePublishedState {
             self.isLoggedIn = true
@@ -504,23 +506,72 @@ final class QQMusicAuth: ObservableObject {
         return await task.value
     }
 
+    /// Renew this long before musickey expires; the old key keeps working meanwhile.
+    static let renewalLeadTime: TimeInterval = 6 * 60 * 60
+    /// After a failed renewal, wait this long instead of retrying on every request.
+    static let renewalRetryDelay: TimeInterval = 5 * 60
+
+    /// Main-thread only, like the published login state.
+    private var renewalRetryAt: Date?
+
+    /// When the saved musickey expires, from QQ's `musickeyCreateTime` + `keyExpiresIn`.
+    var credentialExpiry: Date? {
+        guard let created = cookies["musickeyCreateTime"].flatMap(Double.init), created > 0,
+              let lifetime = cookies["keyExpiresIn"].flatMap(Double.init), lifetime > 0 else { return nil }
+        return Date(timeIntervalSince1970: created + lifetime)
+    }
+
+    /// QQ (ptlogin) scans return an empty `refresh_key` and renew with `openid` + `refresh_token`;
+    /// WeChat / QQ Music App logins carry `refresh_key`. Web-imported cookies have neither.
+    var canRenewCredential: Bool {
+        collectionCredential != nil
+            && !((cookies["refresh_token"] ?? "").isEmpty && (cookies["refresh_key"] ?? "").isEmpty)
+    }
+
+    /// Seconds until the next renewal check is worthwhile, or nil when this login cannot renew.
+    @MainActor
+    func nextRenewalCheckDelay(now: Date = Date()) -> TimeInterval? {
+        guard isLoggedIn, canRenewCredential else { return nil }
+        var due = credentialExpiry.map { $0.addingTimeInterval(-Self.renewalLeadTime) } ?? now.addingTimeInterval(3600)
+        if let retry = renewalRetryAt, retry > due { due = retry }
+        return min(max(due.timeIntervalSince(now), 60), 3600)
+    }
+
     @MainActor
     private func renewCredential(force: Bool, api: QQMusicAPI) async -> Bool {
         let saved = cookies
-        guard let credential = collectionCredential, let openID = saved["openid"], !openID.isEmpty,
-              let token = saved["refresh_token"], !token.isEmpty, let key = saved["refresh_key"], !key.isEmpty else { return false }
+        guard let credential = collectionCredential, canRenewCredential else { return false }
+        let now = Date()
+        if let retry = renewalRetryAt, retry > now { return false }
         if !force {
-            guard let created = saved["musickeyCreateTime"].flatMap(Double.init), created > 0,
-                  let lifetime = saved["keyExpiresIn"].flatMap(Double.init), lifetime > 0,
-                  created + lifetime <= Date().timeIntervalSince1970 + 900 else { return false }
+            guard let expiry = credentialExpiry,
+                  expiry.addingTimeInterval(-Self.renewalLeadTime) <= now else { return false }
         }
-        let fields: [String: Any] = ["openid": openID, "refresh_token": token, "str_musicid": credential.id,
-            "musickey": credential.key, "unionid": saved["unionid"] ?? "", "refresh_key": key, "loginMode": 2]
-        guard let data = try? await api.loginCall("Login", params: fields, credential: credential),
-              !Task.isCancelled, cookies == saved,
-              let renewed = try? QQMusicAdditionalLogin.credentials(data, defaultLoginType: credential.loginType),
-              renewed.credentials["str_musicid"] == credential.id else { return false }
-        importCookies(saved.merging(renewed.credentials) { _, new in new }, nickname: saved["nick"] ?? nickname)
+        let fields: [String: Any] = ["openid": saved["openid"] ?? "", "refresh_token": saved["refresh_token"] ?? "",
+            "str_musicid": credential.id, "musickey": credential.key, "unionid": saved["unionid"] ?? "",
+            "refresh_key": saved["refresh_key"] ?? "", "loginMode": 2]
+        let data: [String: Any]
+        do {
+            data = try await api.loginCall("Login", params: fields, credential: credential)
+        } catch is CancellationError {
+            return false
+        } catch {
+            if cookies == saved { renewalRetryAt = Date().addingTimeInterval(Self.renewalRetryDelay) }
+            return false
+        }
+        guard !Task.isCancelled, cookies == saved else { return false }
+        guard let renewed = try? QQMusicAdditionalLogin.credentials(data, defaultLoginType: credential.loginType),
+              renewed.credentials["str_musicid"] == credential.id else {
+            renewalRetryAt = Date().addingTimeInterval(Self.renewalRetryDelay)
+            return false
+        }
+        renewalRetryAt = nil
+        var next = saved.merging(renewed.credentials) { _, new in new }
+        // A renewal that omits the new key's age would look expiring forever; date it from now.
+        if renewed.credentials["musickeyCreateTime"] == nil, next["keyExpiresIn"] != nil {
+            next["musickeyCreateTime"] = String(Int(Date().timeIntervalSince1970))
+        }
+        importCookies(next, nickname: saved["nick"] ?? nickname)
         return true
     }
 

@@ -59,6 +59,7 @@ final class AccountStore: ObservableObject {
     private var playlistSyncTask: Task<Void, Never>?
     private var playlistSyncID = UUID()
     private var networkObserver: AnyCancellable?
+    private var qqRenewalTask: Task<Void, Never>?
 
     var likedSongsPlaylist: PlaylistSummary? {
         if provider != .netease { return userPlaylists.first(where: \.isLikedSongsList) }
@@ -89,6 +90,8 @@ final class AccountStore: ObservableObject {
     func changeProvider(_ value: MusicProvider) async {
         bootstrapGeneration += 1
         cancelPlaylistSync()
+        qqRenewalTask?.cancel()
+        qqRenewalTask = nil
         provider = value
         sessionRevision = UUID()
         pendingPlatformLikes = [:]
@@ -324,6 +327,7 @@ final class AccountStore: ObservableObject {
         if provider == .qq {
             await QQMusicAuth.shared.refreshCredentialIfNeeded()
             guard generation == bootstrapGeneration, provider == .qq, hasAuthCookie else { return }
+            scheduleQQCredentialRenewal()
         }
         guard let cached = platformProfile(), generation == bootstrapGeneration else { return }
         applyProfile(cached, binding: currentAuthenticationFingerprint)
@@ -340,6 +344,23 @@ final class AccountStore: ObservableObject {
         }
         await refreshPlatformLibrary(force: true)
         if generation == bootstrapGeneration, provider.supports(.collectionArtists) { await refreshSublists(force: true) }
+    }
+
+    /// Keeps the active QQ login alive: renews musickey ahead of expiry while the app runs.
+    /// The sleep uses the continuous clock, so a check overdue after system sleep or app
+    /// suspension fires as soon as the app runs again.
+    private func scheduleQQCredentialRenewal() {
+        qqRenewalTask?.cancel()
+        qqRenewalTask = Task { [weak self] in
+            let auth = QQMusicAuth.shared
+            while !Task.isCancelled, let delay = auth.nextRenewalCheckDelay() {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self, self.provider == .qq, auth.isLoggedIn else { return }
+                if await auth.refreshCredentialIfNeeded(), self.provider == .qq {
+                    try? MusicAccountManager.shared.rememberCurrent()
+                }
+            }
+        }
     }
 
     private func platformProfile() -> UserProfile? {

@@ -44,17 +44,17 @@ struct AudioSourceTrackMatcherTests {
 
     @Test func sourcesMapToPlatforms() {
         #expect(AudioSourceID(platform: .kugou) == .kugou)
-        #expect(AudioSourceID.pyncmd.platform == nil)
+        #expect(AudioSourceID.mirror.platform == nil)
         #expect(!AudioSourceID.allCases.map(\.rawValue).contains("kuwo"))
     }
 
-    @Test func pyncmdRequestsTheTierThePlayerWants() async {
-        #expect(PyncmdUnblockSource.requestedBitrate(for: .standard) == 128)
-        #expect(PyncmdUnblockSource.requestedBitrate(for: .exhigh) == 320)
-        #expect(PyncmdUnblockSource.requestedBitrate(for: .lossless) == 999)
-        #expect(PyncmdUnblockSource.requestedBitrate(for: .jymaster) == 999)
-        #expect(await PyncmdUnblockSource.tier(bitrateKbps: 128, address: "") == .standard)
-        #expect(await PyncmdUnblockSource.tier(bitrateKbps: 320, address: "") == .exhigh)
+    @Test func mirrorRequestsTheTierThePlayerWants() async {
+        #expect(MirrorUnblockSource.requestedBitrate(for: .standard) == 128)
+        #expect(MirrorUnblockSource.requestedBitrate(for: .exhigh) == 320)
+        #expect(MirrorUnblockSource.requestedBitrate(for: .lossless) == 999)
+        #expect(MirrorUnblockSource.requestedBitrate(for: .jymaster) == 999)
+        #expect(await MirrorUnblockSource.tier(bitrateKbps: 128, address: "") == .standard)
+        #expect(await MirrorUnblockSource.tier(bitrateKbps: 320, address: "") == .exhigh)
     }
 
     private func score(title: String, artist: String, durationMS: Int = 180_000) -> Int? {

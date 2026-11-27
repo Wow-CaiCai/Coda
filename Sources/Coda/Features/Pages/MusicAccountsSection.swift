@@ -204,30 +204,10 @@ struct MusicAccountsSection: View {
 /// gray while checking or when the platform cannot tell.
 struct AccountValidityBadge: View {
     let status: MusicAccountValidity
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        // Breathes while the check runs; the timeline is paused otherwise.
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isPulsing)) { context in
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-                .opacity(opacity(at: context.date))
-        }
-        .frame(width: 8, height: 8)
-        .animation(.easeInOut(duration: 0.25), value: status)
-        .help(status.rawValue)
-        .accessibilityElement()
-        .accessibilityLabel("登录状态：\(status.rawValue)")
-    }
-
-    private var isPulsing: Bool { status == .checking && !reduceMotion }
-
-    private func opacity(at date: Date) -> Double {
-        guard status == .checking else { return 1 }
-        guard isPulsing else { return 0.5 }
-        let phase = (sin(date.timeIntervalSinceReferenceDate * .pi / 0.75) + 1) / 2
-        return 0.25 + 0.55 * phase
+        StatusDot(color: color, isChecking: status == .checking, help: status.rawValue,
+                  accessibilityLabel: "登录状态：\(status.rawValue)")
     }
 
     private var color: Color {
@@ -239,10 +219,44 @@ struct AccountValidityBadge: View {
     }
 }
 
+/// An 8 pt status dot that breathes while a check runs.
+struct StatusDot: View {
+    let color: Color
+    var isChecking = false
+    let help: String
+    let accessibilityLabel: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        // The timeline is paused unless the dot is breathing.
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !isPulsing)) { context in
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+                .opacity(opacity(at: context.date))
+        }
+        .frame(width: 8, height: 8)
+        .animation(.easeInOut(duration: 0.25), value: color)
+        .animation(.easeInOut(duration: 0.25), value: isChecking)
+        .help(help)
+        .accessibilityElement()
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var isPulsing: Bool { isChecking && !reduceMotion }
+
+    private func opacity(at date: Date) -> Double {
+        guard isChecking else { return 1 }
+        guard isPulsing else { return 0.5 }
+        let phase = (sin(date.timeIntervalSinceReferenceDate * .pi / 0.75) + 1) / 2
+        return 0.25 + 0.55 * phase
+    }
+}
+
 /// macOS Forms draw Buttons bordered and Menus as native pop-up buttons with
 /// their own icon metrics; render all account actions through one button style
 /// and one label layout so icons share a column and titles line up.
-private struct AccountActionStyle: ViewModifier {
+struct AccountActionStyle: ViewModifier {
     var isMenu = false
 
     func body(content: Content) -> some View {

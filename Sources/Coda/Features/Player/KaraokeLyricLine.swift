@@ -244,6 +244,8 @@ final class KaraokeLineView: NSView {
         guard displayLink == nil else { return }
         lastDraw = 0
         let link = displayLink(target: self, selector: #selector(step(_:)))
+        // Drawing is throttled to 30 Hz; don't hold the display at ProMotion rate.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }
@@ -358,6 +360,8 @@ final class KaraokeLineView: UIView {
         lastDraw = 0
         linkTarget.view = self
         let link = CADisplayLink(target: linkTarget, selector: #selector(KaraokeLineLinkTarget.step(_:)))
+        // Drawing is throttled to 30 Hz; don't hold the display at ProMotion rate.
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 30, preferred: 30)
         link.add(to: .main, forMode: .common)
         displayLink = link
     }

@@ -59,7 +59,7 @@ actor UnblockMatchCache {
 // MARK: - NetEase song lookup
 
 /// Finds the NetEase song ID of a track from another platform. Shared by the
-/// mirror and NetEase sources so one gray track searches NetEase only once.
+/// custom and NetEase sources so one gray track searches NetEase only once.
 actor NeteaseSongLookup {
     static let shared = NeteaseSongLookup()
     private static let lifetime: TimeInterval = 10 * 60
@@ -97,72 +97,6 @@ actor NeteaseSongLookup {
             UnblockCandidate(title: $0.name, artist: $0.artistNames, album: $0.album.name,
                              durationMS: $0.durationMS, payload: $0.id)
         })
-    }
-}
-
-// MARK: - Mirror
-
-struct MirrorUnblockSource: UnblockSource {
-    let id = AudioSourceID.mirror
-    private let httpClient: AudioSourceClient
-
-    init(httpClient: AudioSourceClient = .shared) {
-        self.httpClient = httpClient
-    }
-
-    func isAvailable() async -> Bool { true }
-    func isSignedIn() async -> Bool { false }
-
-    /// The mirror's `br` tiers: 128/192/320 kbps MP3, 740/999 the best FLAC it has.
-    static func requestedBitrate(for quality: AudioQuality) -> Int {
-        switch basicQuality(quality) {
-        case .standard: return 128
-        case .higher: return 192
-        case .exhigh: return 320
-        default: return 999
-        }
-    }
-
-    func resolve(_ query: UnblockQuery, quality: AudioQuality) async throws -> UnblockStream? {
-        guard let songID = try await NeteaseSongLookup.shared.songID(for: query) else { return nil }
-        let data = try await httpClient.data(
-            from: "https://music-api.gdstudio.xyz/api.php?types=url&source=netease&id=\(songID)&br=\(Self.requestedBitrate(for: quality))",
-            source: id,
-            operation: "resolve"
-        )
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw AudioSourceProviderError.invalidResponse
-        }
-        guard let bitrate = object["br"] as? Int, bitrate > 0 else {
-            throw AudioSourceProviderError.missingBitrate
-        }
-        guard let address = object["url"] as? String, !address.isEmpty else {
-            throw AudioSourceProviderError.missingStreamURL
-        }
-        let secureAddress = address.replacingOccurrences(of: "http://", with: "https://")
-        guard let url = URL(string: secureAddress) else {
-            throw AudioSourceProviderError.invalidURL
-        }
-        let served = await Self.tier(bitrateKbps: bitrate, address: secureAddress)
-        let title = served.map {
-            AudioQualityOption.unifiedTitle(quality: $0, reportedBitrate: Double(bitrate * 1000),
-                                            byteCount: (object["size"] as? NSNumber)?.doubleValue,
-                                            durationSeconds: Double(query.durationMS) / 1000)
-        }
-        return UnblockStream(url: url, quality: served, bitrate: bitrate * 1000, title: title)
-    }
-
-    func qualityOptions(_ query: UnblockQuery) async throws -> [AudioQualityOption] {
-        await probeTiers(self, query, [.standard, .higher, .exhigh, .lossless])
-    }
-
-    /// MP3 tiers follow the bitrate; above 320 kbps it is FLAC, whose header
-    /// tells lossless from Hi-Res.
-    static func tier(bitrateKbps: Int, address: String) async -> AudioQuality? {
-        let bitrate = Double(bitrateKbps) * 1000
-        guard bitrateKbps > 320 else { return AudioQualityCheck.lossyTier(bitrate: bitrate) }
-        let client = await UnblockSessionPool.shared.neteaseClient()
-        return await client.playbackMediaTier(url: address, bitrate: bitrate) ?? .lossless
     }
 }
 

@@ -2,6 +2,8 @@ import Foundation
 
 enum MusicMembership: String, Codable {
     case qishuiVIP = "汽水会员"
+    case bodianVIP = "波点会员"
+    case bodianBigVIP = "波点大会员"
     case unknown = "会员状态未知"
     case none = "非会员"
     case neteasePackage = "音乐包"

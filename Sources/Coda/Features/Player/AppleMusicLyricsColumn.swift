@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 private struct NowPlayingLyricsPresentedKey: EnvironmentKey {
@@ -682,6 +683,54 @@ private struct LyricsInterfaceScrollObserver: UIViewRepresentable {
 }
 #endif
 
+/// Each blurred row is its own offscreen pass. While the player zooms in or
+/// out, or the system scales the window for the app switcher, every one of
+/// them is re-rendered each frame in the compositor; the transition stutters
+/// even with an idle main thread. Rows render sharp until the motion settles.
+@MainActor
+final class LyricBlurGate: ObservableObject {
+    static let shared = LyricBlurGate()
+    @Published private(set) var suppressed = false
+
+    private var transitioning = false
+    private var inactive = false
+    private var settle: Task<Void, Never>?
+    private var subscriptions: Set<AnyCancellable> = []
+
+    private init() {
+        PlayerService.shared.$showNowPlaying
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.beginTransition() }
+            .store(in: &subscriptions)
+        MainWindowVisibility.shared.$isVisible
+            .removeDuplicates()
+            .sink { [weak self] visible in
+                self?.inactive = !visible
+                self?.refresh()
+            }
+            .store(in: &subscriptions)
+    }
+
+    private func beginTransition() {
+        transitioning = true
+        refresh()
+        settle?.cancel()
+        settle = Task { [weak self] in
+            // The zoom presentation runs about half a second; allow it to land.
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.transitioning = false
+            self.refresh()
+        }
+    }
+
+    private func refresh() {
+        let next = transitioning || inactive
+        if next != suppressed { suppressed = next }
+    }
+}
+
 private struct AppleMusicLyricRow: View, Equatable {
     let line: LyricLine
     let isActive: Bool
@@ -695,6 +744,7 @@ private struct AppleMusicLyricRow: View, Equatable {
     @EnvironmentObject private var settings: SettingsManager
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorSchemeContrast) private var contrast
+    @ObservedObject private var blurGate = LyricBlurGate.shared
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.line == rhs.line && lhs.isActive == rhs.isActive
@@ -713,7 +763,8 @@ private struct AppleMusicLyricRow: View, Equatable {
     }
 
     private var blur: CGFloat {
-        guard !isActive, !isSeekTarget, !isBrowsing, contrast != .increased else { return 0 }
+        guard !isActive, !isSeekTarget, !isBrowsing, contrast != .increased,
+              !blurGate.suppressed else { return 0 }
         return min(3.5, CGFloat(abs(distance)) * 0.65)
     }
 
@@ -766,11 +817,13 @@ private struct AppleMusicLyricRow: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .leading)
             .opacity(opacity)
             .scaleEffect(isActive || isBrowsing || isSeekTarget ? 1 : 0.98, anchor: .leading)
-            .shadow(color: .white.opacity(isActive ? 0.14 : 0), radius: 12)
+            // A transparent shadow still costs an offscreen pass per visible row.
+            .shadow(color: .white.opacity(isActive ? 0.14 : 0), radius: isActive ? 12 : 0)
             .animation(reduceMotion ? nil : .interpolatingSpring(mass: 1, stiffness: 100, damping: 18),
                        value: opacity)
             .blur(radius: blur)
-            .animation(reduceMotion ? nil : .timingCurve(0.33, 0, 0.2, 0.1, duration: 0.12), value: blur)
+            // Drop blur instantly when a transition starts; ease it back afterwards.
+            .animation(reduceMotion || blurGate.suppressed ? nil : .timingCurve(0.33, 0, 0.2, 0.1, duration: 0.12), value: blur)
             .contentShape(Rectangle())
         }
         .buttonStyle(LyricPressButtonStyle(isSeekTarget: isSeekTarget))

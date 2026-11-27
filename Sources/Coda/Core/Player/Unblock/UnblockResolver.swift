@@ -2,7 +2,7 @@ import Foundation
 import os.log
 
 /// Finds a full-length stream for a track its own platform will not play:
-/// the mirror and parsing services first, then the other platforms
+/// the user's imported sources first, then the other platforms
 /// (signed-in ones first), with
 /// Qishui last. Lookups run in parallel, but the earliest source in that
 /// order that succeeds always wins, so the result does not depend on timing.
@@ -26,7 +26,7 @@ enum UnblockResolver {
 
     private static let log = Logger(subsystem: "wow.caicai.coda", category: "audio-source")
     private static let parallelSources: [any UnblockSource] = [
-        MirrorUnblockSource(), ParserUnblockSource(), NeteaseUnblockSource(), QQUnblockSource(), KugouUnblockSource(),
+        CustomUnblockSource(), NeteaseUnblockSource(), QQUnblockSource(), KugouUnblockSource(),
     ]
     private static let lastSource: any UnblockSource = QishuiUnblockSource()
 
@@ -67,16 +67,16 @@ enum UnblockResolver {
         return AudioQualityOption.unified(options)
     }
 
-    /// Mirrors first, in listed order; then platforms with a saved account
+    /// Imported sources first; then platforms with a saved account
     /// before anonymous ones.
     private static func order(_ sources: [any UnblockSource]) async -> [any UnblockSource] {
         var signedIn: [any UnblockSource] = []
         var anonymous: [any UnblockSource] = []
         for source in sources {
-            if source.id.isMirror { continue }
+            if source.id.isImported { continue }
             if await source.isSignedIn() { signedIn.append(source) } else { anonymous.append(source) }
         }
-        return sources.filter { $0.id.isMirror } + signedIn + anonymous
+        return sources.filter { $0.id.isImported } + signedIn + anonymous
     }
 
     private enum State { case pending, failed, found(UnblockStream) }

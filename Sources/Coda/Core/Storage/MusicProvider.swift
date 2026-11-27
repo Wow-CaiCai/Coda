@@ -4,14 +4,14 @@ import Foundation
 import Security
 
 enum MusicProvider: String, Codable, CaseIterable, Identifiable {
-    case netease, qq, kugou, qishui
+    case netease, qq, kugou, qishui, bodian
     var id: String { rawValue }
     var supportsFavoriteChanges: Bool { supports(.favoriteChanges) }
     var supportsDownloads: Bool { supports(.downloads) }
     /// NetEase's playlistChanges covers track edits only; renaming is wired per platform.
     var supportsPlaylistRename: Bool { self != .netease && supports(.playlistChanges) }
     var name: String {
-        switch self { case .netease: return "网易云音乐"; case .qq: return "QQ 音乐"; case .kugou: return "酷狗音乐"; case .qishui: return "汽水音乐" }
+        switch self { case .netease: return "网易云音乐"; case .qq: return "QQ 音乐"; case .kugou: return "酷狗音乐"; case .qishui: return "汽水音乐"; case .bodian: return "波点音乐" }
     }
 }
 

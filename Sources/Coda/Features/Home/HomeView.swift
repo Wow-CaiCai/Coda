@@ -440,10 +440,10 @@ private struct StandardHomeView: View {
 
     // MARK: - Daily song rows
 
-    /// QQ and Kugou have no radar playlists, so two lone feature cards would leave
+    /// QQ, Kugou and Bodian have no radar playlists, so two lone feature cards would leave
     /// the row mostly empty; show the daily songs themselves instead.
     private var showsDailySongRows: Bool {
-        account.isLoggedIn && (account.provider == .qq || account.provider == .kugou)
+        account.isLoggedIn && [.qq, .kugou, .bodian].contains(account.provider)
             && account.provider.supports(.dailySongs)
     }
 
@@ -728,6 +728,10 @@ struct FeatureCard: View {
             RoundedRectangle(cornerRadius: HomeLayout.coverCornerRadius, style: .continuous)
                 .strokeBorder(usesLightForeground ? Color.clear : Color.primary.opacity(0.08), lineWidth: 0.5)
         )
+        // Flatten the clipped stack (and the 12-tile collage) into one bitmap.
+        // Otherwise each card is a masked offscreen pass the compositor repeats
+        // on every frame of a window or presentation transform.
+        .drawingGroup()
         .contentShape(Rectangle())
     }
 
@@ -788,6 +792,9 @@ struct CoverCardBody: View {
                             .padding(Theme.Spacing.small)
                     }
                 }
+                // One bitmap per cover instead of a masked layer stack; the
+                // play control stays outside so it remains a live control.
+                .drawingGroup()
                 .overlay(alignment: .bottomLeading) {
                     if let onPlay {
                         PlayOverlayButton(visible: isHovering, action: onPlay)

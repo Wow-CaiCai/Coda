@@ -400,7 +400,8 @@ struct PlaylistDetailView: View {
     private func canSubscribe(_ detail: PlaylistDetail) -> Bool {
         account.provider.supports(.playlistSubscriptions) && account.isLoggedIn && !isOwnPlaylist && !PlatformMusicAPI.shared.isQQRadio(detail.id) &&
             (account.provider != .qishui || (detail.qishuiFeed == nil && detail.specialType != 5 &&
-                !PlatformMusicAPI.shared.isQishuiChart(detail.id)))
+                !PlatformMusicAPI.shared.isQishuiChart(detail.id))) &&
+            (account.provider != .bodian || PlatformMusicAPI.shared.isBodianCollectible(detail.id))
     }
 
     private func toggleSubscribe(_ detail: PlaylistDetail) {

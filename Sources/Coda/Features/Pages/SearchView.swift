@@ -371,7 +371,11 @@ struct SearchView: View {
             await Task.yield()
             guard !Task.isCancelled, focusRequested else { return }
             focusRequested = false
+            #if os(macOS)
+            // On iPad, opening Explore must not raise the keyboard; the field
+            // focuses only when tapped.
             searchFocused = true
+            #endif
         }
         .onDisappear { searchFocused = false }
     }

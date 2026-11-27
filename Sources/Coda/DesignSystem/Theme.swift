@@ -236,21 +236,21 @@ private struct CompatibleGlassSurface<S: Shape>: ViewModifier {
     @ViewBuilder
     private func nativeOrLegacy(_ content: Content) -> some View {
         #if compiler(<6.2)
-        content.background { LegacyGlassBackground(shape: shape) }
+        content.modifier(LegacyGlassSurface(shape: shape, interactive: interactive))
         #elseif os(macOS)
         if #available(macOS 26.0, *) {
             content.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
         } else {
-            content.background { LegacyGlassBackground(shape: shape) }
+            content.modifier(LegacyGlassSurface(shape: shape, interactive: interactive))
         }
         #elseif os(iOS)
         if #available(iOS 26.0, *) {
             content.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
         } else {
-            content.background { LegacyGlassBackground(shape: shape) }
+            content.modifier(LegacyGlassSurface(shape: shape, interactive: interactive))
         }
         #else
-        content.background { LegacyGlassBackground(shape: shape) }
+        content.modifier(LegacyGlassSurface(shape: shape, interactive: interactive))
         #endif
     }
 }

@@ -16,16 +16,7 @@ enum QQMusicLoginChannel: String, CaseIterable, Identifiable {
 
 @MainActor
 enum QQMusicAdditionalLogin {
-    static func signIn(_ channel: QQMusicLoginChannel, onImage: (Data) -> Void,
-                       onScanned: () -> Void) async throws -> (credentials: [String: String], nickname: String) {
-        switch channel {
-        case .wechat: return try await wechat(onImage: onImage, onScanned: onScanned)
-        case .qqmusic: return try await musicApp(onImage: onImage, onScanned: onScanned)
-        case .qq: throw MusicProviderError.unsupported
-        }
-    }
-
-    private static func wechat(onImage: (Data) -> Void, onScanned: () -> Void) async throws
+    static func wechat(onImage: (Data) -> Void, onScanned: () -> Void) async throws
         -> (credentials: [String: String], nickname: String) {
         let appID = "wx48db31d50e334801"
         let entry = "https://open.weixin.qq.com/connect/qrconnect"
@@ -81,8 +72,16 @@ enum QQMusicAdditionalLogin {
         throw expired
     }
 
-    private static func musicApp(onImage: (Data) -> Void, onScanned: () -> Void) async throws
-        -> (credentials: [String: String], nickname: String) {
+    /// A QQ Music App QR that can be waited on again after a dropped connection
+    /// (the user switching to QQ Music on the same device).
+    struct MusicAppQR: Equatable {
+        let id: String
+        let image: Data
+        let expiresAt: Date
+        var isExpired: Bool { Date() >= expiresAt }
+    }
+
+    static func createMusicAppQR() async throws -> MusicAppQR {
         let data = try await QQMusicAPI.shared.loginCall("CreateQRCode",
             params: ["tmeAppID": "qqmusic", "ct": 11, "cv": 14090008], comm: ["ct": 23, "cv": 0])
         guard let id = data["qrcodeID"] as? String, !id.isEmpty,
@@ -92,6 +91,17 @@ enum QQMusicAdditionalLogin {
             throw ProviderRequestError.decoding("QQ Music App QR")
         }
         let ttl = max(10, min(data["expiresIn"] as? Int ?? 180, 180))
+        return MusicAppQR(id: id, image: image, expiresAt: Date().addingTimeInterval(TimeInterval(ttl)))
+    }
+
+    /// Connects to the QR's MQTT topic and waits for the result. Safe to call
+    /// again with the same QR after the socket drops; `onSubscribed` fires once
+    /// the topic is live, so the QR is only shown when a scan will be heard.
+    static func waitMusicApp(_ qr: MusicAppQR, onSubscribed: () -> Void, onScanned: () -> Void) async throws
+        -> (credentials: [String: String], nickname: String) {
+        let id = qr.id
+        let ttl = qr.expiresAt.timeIntervalSinceNow
+        guard ttl > 0 else { throw expired }
         let session = URLSession(configuration: .ephemeral, delegate: ProviderNoRedirectDelegate(), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         var path = "/ws/handshake"
@@ -142,7 +152,7 @@ enum QQMusicAdditionalLogin {
                         guard let code = packet.body.last, code < 0x80 else {
                             throw ProviderRequestError.decoding("QQ Music MQTT subscription")
                         }
-                        onImage(image)
+                        onSubscribed()
                     case 3:
                         let event = try QQMusicQRSocket.event(packet)
                         switch event.type {
@@ -184,7 +194,7 @@ enum QQMusicAdditionalLogin {
         return (result, result["nick"] ?? "QQ 音乐用户")
     }
 
-    private static var expired: ProviderRequestError { .unknown("二维码已过期，请刷新") }
+    static var expired: ProviderRequestError { .unknown("二维码已过期，请刷新") }
 
     private static func get(_ session: URLSession, _ url: URL, referer: String? = nil) async throws -> Data {
         var request = URLRequest(url: url, timeoutInterval: 16)

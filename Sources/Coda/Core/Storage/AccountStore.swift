@@ -26,6 +26,7 @@ final class AccountStore: ObservableObject {
         case .netease: return NeteaseClient.shared.isLoggedIn
         case .qq: return QQMusicAuth.shared.isLoggedIn
         case .qishui: return QishuiMusicAPI.shared.isLoggedIn
+        case .bodian: return BodianMusicAPI.shared.isLoggedIn
         case .kugou: return KugouMusicAuth.shared.isLoggedIn
         }
     }
@@ -39,6 +40,7 @@ final class AccountStore: ObservableObject {
         case .netease: return profile.map { String($0.userId) } ?? ""
         case .qq: return QQMusicAuth.shared.uin
         case .qishui: return QishuiMusicAPI.shared.userID
+        case .bodian: return BodianMusicAPI.shared.userID
         case .kugou: return KugouMusicAuth.shared.userId
         }
     }
@@ -245,7 +247,7 @@ final class AccountStore: ObservableObject {
             ToastCenter.shared.show(String(localized: "登录后即可收藏歌曲"))
             return
         }
-        let serialize = provider == .qishui || provider == .qq
+        let serialize = provider == .qishui || provider == .qq || provider == .bodian
         let session = sessionRevision
         if serialize {
             guard pendingPlatformLikes[trackID] == nil else { return }
@@ -284,6 +286,7 @@ final class AccountStore: ObservableObject {
         PlayerService.shared.resetForMusicAccountChange()
         if provider != .netease {
             if provider == .qishui { try QishuiMusicAPI.shared.logout() }
+            else if provider == .bodian { try BodianMusicAPI.shared.logout() }
             else if provider == .qq { QQMusicAuth.shared.logout() } else { KugouMusicAuth.shared.logout() }
             MusicProviderContext.shared.activate(provider)
             await changeProvider(provider)
@@ -364,10 +367,14 @@ final class AccountStore: ObservableObject {
     }
 
     private func platformProfile() -> UserProfile? {
-        let userID = provider == .qishui ? QishuiMusicAPI.shared.userID : provider == .qq ? QQMusicAuth.shared.uin : KugouMusicAuth.shared.userId
-        let nickname = provider == .qishui ? QishuiMusicAPI.shared.nickname : provider == .qq ? QQMusicAuth.shared.nickname : KugouMusicAuth.shared.nickname
+        let userID: String, nickname: String, avatar: String?
+        switch provider {
+        case .qishui: (userID, nickname, avatar) = (QishuiMusicAPI.shared.userID, QishuiMusicAPI.shared.nickname, QishuiMusicAPI.shared.credentials["avatar"])
+        case .bodian: (userID, nickname, avatar) = (BodianMusicAPI.shared.userID, BodianMusicAPI.shared.nickname, BodianMusicAPI.shared.avatarURL)
+        case .qq: (userID, nickname, avatar) = (QQMusicAuth.shared.uin, QQMusicAuth.shared.nickname, QQMusicAuth.shared.exportedCredentials["logo"])
+        case .kugou, .netease: (userID, nickname, avatar) = (KugouMusicAuth.shared.userId, KugouMusicAuth.shared.nickname, KugouMusicAuth.shared.avatarURL?.absoluteString)
+        }
         let vip = provider == .kugou ? KugouMusicAuth.shared.vipType : 0
-        let avatar = provider == .qishui ? QishuiMusicAPI.shared.credentials["avatar"] : provider == .kugou ? KugouMusicAuth.shared.avatarURL?.absoluteString : QQMusicAuth.shared.exportedCredentials["logo"]
         let id = PlatformMusicAPI.identifier(provider: provider, kind: "account", value: userID)
         var object: [String: Any] = ["userId": id, "nickname": nickname.isEmpty ? "\(provider.name)用户 \(userID)" : nickname, "vipType": vip]
         object["avatarUrl"] = avatar
@@ -395,13 +402,13 @@ final class AccountStore: ObservableObject {
                 let favorites = try await PlatformMusicAPI.shared.playlistDetail(id: liked.id).playlist.tracks
                 try MusicProviderContext.shared.check(ticket)
                 guard libraryRefresh.accepts(refresh), mutation == mutationRevision,
-                      provider != .qishui || pendingPlatformLikes.isEmpty else { return }
+                      (provider != .qishui && provider != .bodian) || pendingPlatformLikes.isEmpty else { return }
                 likedTrackIDs = Set(favorites.map(\.id))
             } else if provider == .qishui {
                 guard mutation == mutationRevision, pendingPlatformLikes.isEmpty else { return }
                 likedTrackIDs = []
             }
-            if provider == .qishui || provider == .qq { NowPlayingManager.shared.refreshLikeState() }
+            if provider == .qishui || provider == .qq || provider == .bodian { NowPlayingManager.shared.refreshLikeState() }
             success = true
             sublistsError = nil
             libraryRevision += 1

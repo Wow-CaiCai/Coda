@@ -9,6 +9,11 @@ struct SettingsView: View {
     @State private var pendingStorageDeletion: StorageItem?
     @State private var automaticCacheLimitMB: Int?
     @State private var showsDisclaimer = false
+    @StateObject private var customSourcesPresentation = CustomSourcesPresentation()
+    #if os(iOS)
+    /// Edit mode for the whole Form; only the custom-source section turns it on, to reorder.
+    @State private var editMode: EditMode = .inactive
+    #endif
     #if DEBUG
     @State private var showsOnboardingPreview = false
     #endif
@@ -43,6 +48,8 @@ struct SettingsView: View {
 
                 AutoMixSettingsSection()
                 #endif
+
+                CustomSourcesSection(presentation: customSourcesPresentation)
 
                 #if os(macOS)
                 Section("外观") {
@@ -85,6 +92,11 @@ struct SettingsView: View {
         .nativeTabBarScrolling()
         // Host presentations on the Form, never on a Section: iOS dismisses them when the List re-renders.
         .modifier(MusicAccountsPresenter(presentation: accountsPresentation))
+        .modifier(CustomSourcesPresenter(presentation: customSourcesPresentation))
+        #if os(iOS)
+        // Only while reordering custom sources: native grips, as in the play queue.
+        .environment(\.editMode, $editMode)
+        #endif
         .storageSpaceHost(model: storageModel, pendingDeletion: $pendingStorageDeletion,
                           automaticLimitMB: $automaticCacheLimitMB)
         .sheet(isPresented: $showsDisclaimer) { DisclaimerView() }

@@ -173,6 +173,7 @@ enum NeteaseAPI {
     static func likedAlbums(limit: Int = 500, offset: Int = 0) async throws -> [AlbumSummary] {
         if MusicProviderContext.shared.current == .qq { return try await PlatformMusicAPI.shared.likedQQAlbums() }
         if MusicProviderContext.shared.current == .qishui { return try await PlatformMusicAPI.shared.qishuiLikedAlbums() }
+        if MusicProviderContext.shared.current == .bodian { return try await PlatformMusicAPI.shared.bodianCollectedAlbums() }
         if MusicProviderContext.shared.current != .netease { return [] }
         try MusicProviderContext.shared.requireNetease()
         return try await eapi(SublistResponse<AlbumSummary>.self, "/album/sublist",
@@ -183,6 +184,7 @@ enum NeteaseAPI {
         if MusicProviderContext.shared.current == .qq { return try await PlatformMusicAPI.shared.followedQQArtists() }
         if MusicProviderContext.shared.current == .qishui { return try await PlatformMusicAPI.shared.qishuiFollowedArtists() }
         if MusicProviderContext.shared.current == .kugou { return try await PlatformMusicAPI.shared.followedKugouArtists() }
+        if MusicProviderContext.shared.current == .bodian { return try await PlatformMusicAPI.shared.bodianFollowedArtists() }
         if MusicProviderContext.shared.current != .netease { return [] }
         try MusicProviderContext.shared.requireNetease()
         return try await eapi(SublistResponse<ArtistSummary>.self, "/artist/sublist",
@@ -597,6 +599,7 @@ enum NeteaseAPI {
         if MusicProviderContext.shared.current == .kugou { return try await PlatformMusicAPI.shared.createKugouPlaylist(name: name, isPrivate: isPrivate) }
         if MusicProviderContext.shared.current == .qq { return try await PlatformMusicAPI.shared.createQQPlaylist(name: name, isPrivate: isPrivate) }
         if MusicProviderContext.shared.current == .qishui { return try await PlatformMusicAPI.shared.createQishuiPlaylist(name: name, isPrivate: isPrivate) }
+        if MusicProviderContext.shared.current == .bodian { return try await PlatformMusicAPI.shared.createBodianPlaylist(name: name, isPrivate: isPrivate) }
         try MusicProviderContext.shared.requireNetease()
         let result = try await eapi(PlaylistCreateResponse.self, "/playlist/create",
                         ["name": name, "privacy": isPrivate ? 10 : 0, "type": "NORMAL"]).id
@@ -607,6 +610,7 @@ enum NeteaseAPI {
     static func deletePlaylist(id: Int) async throws {
         if MusicProviderContext.shared.current == .qq { try await PlatformMusicAPI.shared.deleteQQPlaylist(id: id); return }
         if MusicProviderContext.shared.current == .qishui { try await PlatformMusicAPI.shared.deleteQishuiPlaylist(id: id); return }
+        if MusicProviderContext.shared.current == .bodian { try await PlatformMusicAPI.shared.deleteBodianPlaylist(id: id); return }
         if MusicProviderContext.shared.current == .kugou {
             try await PlatformMusicAPI.shared.deleteKugouPlaylist(id: id)
             await MainActor.run { SidebarResources.libraryChanged() }
@@ -622,6 +626,7 @@ enum NeteaseAPI {
         if MusicProviderContext.shared.current == .kugou { try await PlatformMusicAPI.shared.subscribeKugouPlaylist(id: id, subscribe: subscribe); return }
         if MusicProviderContext.shared.current == .qq { try await PlatformMusicAPI.shared.subscribeQQPlaylist(id: id, subscribe: subscribe); return }
         if MusicProviderContext.shared.current == .qishui { try await PlatformMusicAPI.shared.setQishuiCollection(.playlist, id: id, saved: subscribe); return }
+        if MusicProviderContext.shared.current == .bodian { try await PlatformMusicAPI.shared.setBodianCollection(.playlist, id: id, saved: subscribe); return }
         try MusicProviderContext.shared.requireNetease()
         guard id > 0 else { throw MusicProviderError.missingTrack }
         _ = try await eapi(CodeOnly.self, "/playlist/\(subscribe ? "subscribe" : "unsubscribe")", ["id": id])
@@ -637,6 +642,12 @@ enum NeteaseAPI {
         if MusicProviderContext.shared.current == .qishui {
             guard op == "add" || op == "del" else { throw MusicProviderError.unsupported }
             try await PlatformMusicAPI.shared.updateQishuiPlaylistTracks(id: playlistID, trackIDs: trackIDs, adding: op == "add")
+            await MainActor.run { SidebarResources.libraryChanged() }
+            return
+        }
+        if MusicProviderContext.shared.current == .bodian {
+            guard op == "add" || op == "del" else { throw MusicProviderError.unsupported }
+            try await PlatformMusicAPI.shared.updateBodianPlaylistTracks(id: playlistID, trackIDs: trackIDs, adding: op == "add")
             await MainActor.run { SidebarResources.libraryChanged() }
             return
         }
@@ -993,6 +1004,9 @@ enum NeteaseAPI {
         if MusicProviderContext.shared.current == .qq {
             return .init(isSub: try await PlatformMusicAPI.shared.qqAlbumSubscribed(id: id), subCount: nil)
         }
+        if MusicProviderContext.shared.current == .bodian {
+            return .init(isSub: try await PlatformMusicAPI.shared.bodianAlbumCollected(id: id), subCount: nil)
+        }
         try MusicProviderContext.shared.requireNetease()
         guard id > 0 else { throw MusicProviderError.missingTrack }
         return try await eapi(AlbumDynamicResponse.self, "/album/detail/dynamic", ["id": id])
@@ -1001,6 +1015,7 @@ enum NeteaseAPI {
     static func subscribeAlbum(id: Int, subscribe: Bool) async throws {
         if MusicProviderContext.shared.current == .qq { try await PlatformMusicAPI.shared.subscribeQQAlbum(id: id, subscribe: subscribe); return }
         if MusicProviderContext.shared.current == .qishui { try await PlatformMusicAPI.shared.setQishuiCollection(.album, id: id, saved: subscribe); return }
+        if MusicProviderContext.shared.current == .bodian { try await PlatformMusicAPI.shared.setBodianCollection(.album, id: id, saved: subscribe); return }
         try MusicProviderContext.shared.requireNetease()
         guard id > 0 else { throw MusicProviderError.missingTrack }
         _ = try await eapi(CodeOnly.self, "/album/\(subscribe ? "sub" : "unsub")", ["id": id])
@@ -1059,6 +1074,7 @@ enum NeteaseAPI {
     static func subscribeArtist(id: Int, subscribe: Bool, using client: NeteaseClient = .shared) async throws {
         if MusicProviderContext.shared.current == .qq { try await PlatformMusicAPI.shared.followQQArtist(id: id, follow: subscribe); return }
         if MusicProviderContext.shared.current == .qishui { try await PlatformMusicAPI.shared.setQishuiCollection(.artist, id: id, saved: subscribe); return }
+        if MusicProviderContext.shared.current == .bodian { try await PlatformMusicAPI.shared.setBodianCollection(.artist, id: id, saved: subscribe); return }
         if MusicProviderContext.shared.current == .kugou { try await PlatformMusicAPI.shared.followKugouArtist(id: id, follow: subscribe); return }
         try MusicProviderContext.shared.requireNetease()
         guard client.isLoggedIn else { throw NeteaseAPIError.needLogin }

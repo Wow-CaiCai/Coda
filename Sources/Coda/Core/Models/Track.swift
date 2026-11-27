@@ -199,6 +199,8 @@ extension Track {
         if song.source == .qishui, let id = song.qishui?.trackID { return URL(string: "https://music.douyin.com/qishui/share/track?track_id=\(id)") }
         if song.source == .qq, let mid = song.qqMid { return URL(string: "https://y.qq.com/n/ryqq/songDetail/\(mid)") }
         if song.source == .kugou, let hash = song.kugouHash { return URL(string: "https://www.kugou.com/song/#hash=\(hash)") }
+        // Bodian serves Kuwo's catalog under the same music ids.
+        if song.source == .bodian, let id = song.bodian?.musicID { return URL(string: "https://www.kuwo.cn/play_detail/\(id)") }
         return nil
     }
 }

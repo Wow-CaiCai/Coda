@@ -60,6 +60,9 @@ final class MusicAccountManager: ObservableObject {
                 status = QishuiMusicAPI.string(profile["id"]) == item.userID ? .valid : .invalid
             case .kugou:
                 status = try await KugouMusicAPI.shared.loginValidity(credentials: item.credentials)
+            case .bodian:
+                status = item.credentials["userid"] == item.userID
+                    ? try await BodianMusicAPI.shared.validity(credentials: item.credentials) : .invalid
             }
         } catch QishuiError.expiredLogin { status = .invalid }
         catch NeteaseAPIError.needLogin { status = .invalid }
@@ -84,6 +87,7 @@ final class MusicAccountManager: ObservableObject {
         case .netease: uid = String(account.profile?.userId ?? 0)
         case .qq: uid = QQMusicAuth.shared.uin
         case .qishui: uid = QishuiMusicAPI.shared.userID
+        case .bodian: uid = BodianMusicAPI.shared.userID
         case .kugou: uid = KugouMusicAuth.shared.userId
         }
         return "\(account.provider.rawValue):\(uid)"
@@ -96,6 +100,7 @@ final class MusicAccountManager: ObservableObject {
         case .netease: credentials = NeteaseClient.shared.authenticationCookies()
         case .qq: credentials = QQMusicAuth.shared.exportedCredentials
         case .qishui: credentials = QishuiMusicAPI.shared.credentials
+        case .bodian: credentials = BodianMusicAPI.shared.credentials
         case .kugou: credentials = KugouMusicAuth.shared.exportedCredentials
         }
         var item = MusicAccount(id: id, provider: account.provider, userID: String(id.dropFirst(account.provider.rawValue.count + 1)), nickname: profile.nickname, credentials: credentials)
@@ -158,6 +163,8 @@ final class MusicAccountManager: ObservableObject {
                 guard candidate.uin == item.userID, !item.credentials.isEmpty else { throw TransferError.invalid }
             case .qishui:
                 guard item.credentials["userid"] == item.userID, QishuiMusicAPI.validSessionID(item.credentials["sessionid"] ?? "") else { throw TransferError.invalid }
+            case .bodian:
+                guard item.credentials["userid"] == item.userID, BodianMusicAPI.validSession(item.credentials) else { throw TransferError.invalid }
             case .kugou:
                 let uid = (item.credentials["userid"] ?? item.credentials["user_id"] ?? "").filter(\.isNumber)
                 guard uid == item.userID, item.credentials["token"]?.isEmpty == false else { throw TransferError.invalid }
@@ -207,6 +214,8 @@ final class MusicAccountManager: ObservableObject {
                 membership = try await QishuiMusicAPI.shared.membership(credentials: item.credentials)
             case .kugou:
                 membership = try await KugouMusicAPI.shared.membershipStatus(credentials: item.credentials)
+            case .bodian:
+                membership = try await BodianMusicAPI.shared.membership(credentials: item.credentials)
             }
             guard !Task.isCancelled,
                   let index = accounts.firstIndex(where: { $0.id == item.id && $0.credentials == item.credentials }) else { return }
@@ -258,6 +267,7 @@ final class MusicAccountManager: ObservableObject {
             AccountSnapshotStorage.shared.clear()
         case .qq: QQMusicAuth.shared.logout()
         case .qishui: try QishuiMusicAPI.shared.logout()
+        case .bodian: try BodianMusicAPI.shared.logout()
         case .kugou: KugouMusicAuth.shared.logout()
         }
         await activate(provider)
@@ -279,6 +289,9 @@ final class MusicAccountManager: ObservableObject {
         case .kugou:
             let auth = KugouMusicAuth.shared
             session = auth.isLoggedIn ? (auth.userId, auth.nickname, auth.exportedCredentials) : nil
+        case .bodian:
+            let api = BodianMusicAPI.shared
+            session = api.isLoggedIn ? (api.userID, api.nickname, api.credentials) : nil
         }
         guard let session, !session.userID.isEmpty else { return }
         let id = "\(provider.rawValue):\(session.userID)"
@@ -299,6 +312,7 @@ final class MusicAccountManager: ObservableObject {
         case .netease: try NeteaseClient.shared.replaceAuthentication(with: item.credentials)
         case .qq: QQMusicAuth.shared.importCookies(item.credentials, nickname: item.nickname)
         case .qishui: try QishuiMusicAPI.shared.restore(item.credentials)
+        case .bodian: try BodianMusicAPI.shared.restore(item.credentials)
         case .kugou: KugouMusicAuth.shared.restore(item.credentials)
         }
         await activate(item.provider)
@@ -310,6 +324,8 @@ final class MusicAccountManager: ObservableObject {
         if provider == .qishui {
             let verified = try await QishuiMusicAPI.shared.profile(credentials: credentials)
             guard QishuiMusicAPI.string(verified["id"]) == credentials["userid"] else { throw QishuiError.expiredLogin }
+        } else if provider == .bodian {
+            guard try await BodianMusicAPI.shared.validity(credentials: credentials) == .valid else { throw BodianError.authRequired }
         }
         try Task.checkCancellation()
         try rememberCurrent()
@@ -326,6 +342,7 @@ final class MusicAccountManager: ObservableObject {
         try persist(next)
         if provider == .qq { QQMusicAuth.shared.importCookies(credentials, nickname: nickname) }
         else if provider == .qishui { try QishuiMusicAPI.shared.restore(credentials) }
+        else if provider == .bodian { try BodianMusicAPI.shared.restore(credentials) }
         else { KugouMusicAuth.shared.restore(credentials) }
         await activate(provider)
     }
@@ -357,6 +374,10 @@ final class MusicAccountManager: ObservableObject {
             userID = credentials["userid"] ?? ""
         case .kugou:
             userID = credentials["userid"] ?? ""
+        case .bodian:
+            guard try await BodianMusicAPI.shared.validity(credentials: credentials) == .valid else { throw BodianError.authRequired }
+            userID = credentials["userid"] ?? ""
+            avatar = credentials["avatar"]
         }
         try Task.checkCancellation()
         guard !userID.isEmpty, userID != "0" else { throw MusicProviderError.missingTrack }

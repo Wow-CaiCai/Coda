@@ -116,6 +116,7 @@ final class ExploreViewModel: ObservableObject {
         let binding = MusicProviderContext.shared.authenticationKey
         let provider = MusicProviderContext.shared.current
         let qqCategoryID = provider == .qq ? qqCategories.first { $0.id == category }?.qqCategoryID : nil
+        let bodianCategory = provider == .bodian ? BodianMusicAPI.playlistCategories.first { $0.name == category }?.id : nil
         let kugouSort = provider == .kugou ? KugouMusicAPI.PlaylistSort.allCases.first { $0.title == category } : nil
         let requestedOffset = reset ? 0 : offset
         let requestedBefore = reset ? 0 : highQualityBefore
@@ -139,6 +140,10 @@ final class ExploreViewModel: ObservableObject {
                 var seen = Set(requestedExposure)
                 nextExposure += page.exposureIDs.filter { seen.insert($0).inserted }
                 more = page.hasMore && nextExposure.count > requestedExposure.count
+            case (.bodian, _, _) where bodianCategory != nil:
+                let page = try await PlatformMusicAPI.shared.bodianCategoryPlaylists(id: bodianCategory!, limit: 50, offset: requestedOffset)
+                fresh = page.playlists
+                more = page.hasMore
             case (.kugou, _, _) where kugouSort != nil:
                 // 酷狗分类每次固定返回 40 个，没有下一页。
                 fresh = try await PlatformMusicAPI.shared.kugouSortedPlaylists(kugouSort!)
@@ -243,6 +248,7 @@ extension MusicProvider {
         switch self {
         case .netease: return ExploreViewModel.categories
         case .qishui: return ["全部", "推荐歌单"]
+        case .bodian: return ["全部", "推荐歌单"] + BodianMusicAPI.playlistCategories.map(\.name) + ["排行榜"]
         case .kugou: return KugouMusicAPI.PlaylistSort.allCases.map(\.title) + ["排行榜"]
         default: return ["全部", "推荐歌单", "排行榜"]
         }

@@ -8,7 +8,7 @@ struct HomeDiscoverySections: View {
     @Environment(\.openDestination) private var openDestination
 
     var body: some View {
-        ForEach(account.provider.homeDiscoverySlots.filter { $0.showsSongRows == songRows }, id: \.self) { slot in
+        ForEach(visibleSlots, id: \.self) { slot in
             VStack(alignment: .leading, spacing: 0) {
                 SectionHeader(title: LocalizedStringKey(slot.title), action: {
                     openDestination(.homeRecommendation(.discovery(slot)))
@@ -51,6 +51,16 @@ struct HomeDiscoverySections: View {
                 }
             }
             .accessibilityIdentifier("homeDiscovery-\(slot.rawValue)")
+        }
+    }
+
+    /// Bodian's module list varies by account; hide the modules it did not send.
+    private var visibleSlots: [HomeDiscoverySlot] {
+        account.provider.homeDiscoverySlots.filter { slot in
+            guard slot.showsSongRows == songRows else { return false }
+            guard account.provider == .bodian, !model.loadingSlots.contains(slot), !model.failedSlots.contains(slot) else { return true }
+            if !account.isLoggedIn, slot.requiresLogin(on: account.provider) { return true }
+            return model.contents[slot].map { !$0.isEmpty } ?? false
         }
     }
 

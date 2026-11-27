@@ -162,8 +162,10 @@ struct PlayCountBadge: View {
         .foregroundStyle(.white)
         .padding(.horizontal, Theme.Spacing.small)
         .padding(.vertical, Theme.Spacing.tight)
-        .background(.black.opacity(0.35), in: Capsule())
-        .background(.ultraThinMaterial.opacity(0.6), in: Capsule())
+        // A static fill, not a live material: shelves show dozens of these,
+        // and each backdrop blur is re-sampled every frame while the window
+        // scales (app switcher, player zoom), which made the home page stutter.
+        .background(.black.opacity(0.45), in: Capsule())
     }
 }
 

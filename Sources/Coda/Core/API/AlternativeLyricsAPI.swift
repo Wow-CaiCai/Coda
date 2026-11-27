@@ -4,8 +4,8 @@ import Foundation
 import zlib
 
 enum LyricsSource: String, CaseIterable, Identifiable {
-    case automatic, netease, qqMusic, kugou, qishui, lrclib
-    static let providers: [Self] = [.netease, .qqMusic, .kugou, .qishui, .lrclib]
+    case automatic, netease, qqMusic, kugou, qishui, bodian, lrclib
+    static let providers: [Self] = [.netease, .qqMusic, .kugou, .qishui, .bodian, .lrclib]
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -14,6 +14,7 @@ enum LyricsSource: String, CaseIterable, Identifiable {
         case .qqMusic: return "QQ 音乐"
         case .kugou: return "酷狗音乐"
         case .qishui: return "汽水音乐"
+        case .bodian: return "波点音乐"
         case .lrclib: return "LRCLIB"
         }
     }
@@ -123,6 +124,7 @@ enum AlternativeLyricsAPI {
         case .qqMusic: return try await qqMusic(track)
         case .kugou: return try await kugou(track)
         case .qishui: return try await qishui(track)
+        case .bodian: return try await bodian(track)
         case .lrclib: return try await lrclib(track)
         }
     }
@@ -149,6 +151,34 @@ enum AlternativeLyricsAPI {
                 results.append(LyricsCandidate(source: .qishui, id: id, title: song.name,
                     artists: [song.artists], album: song.album, duration: song.duration, response: response))
             }
+        }
+        return results
+    }
+
+    /// Bodian serves Kuwo's word-timed lyrics to anyone; a Bodian track
+    /// names its own recording, others are matched by search.
+    private static func bodian(_ track: Track) async throws -> [LyricsCandidate] {
+        let api = await BodianMusicAPI.lyricsClient
+        if let id = track.platformSong?.bodian?.musicID {
+            let response = try await api.lyric(musicID: id)
+            return [LyricsCandidate(source: .bodian, id: id, title: track.name,
+                artists: track.artists.map(\.name), album: track.album.name, duration: track.duration,
+                response: response, matchedByID: true)]
+        }
+        let keyword = ([track.name] + track.artists.prefix(1).map(\.name)).joined(separator: " ")
+        let songs = try await api.searchSongs(keyword: keyword, limit: 15, offset: 0).songs
+        let matches = await rankedHits(songs.filter { $0.bodian != nil }, track: track) {
+            ($0.name, $0.bodian?.artists?.map(\.name) ?? [$0.artists], $0.album, $0.duration)
+        }
+        var results: [LyricsCandidate] = []
+        for song in matches.prefix(3) {
+            try Task.checkCancellation()
+            guard let id = song.bodian?.musicID, let response = try? await api.lyric(musicID: id),
+                  response.nolyric != true,
+                  let candidate = makeCandidate(source: .bodian, id: id, title: song.name,
+                      artists: song.bodian?.artists?.map(\.name) ?? [song.artists], album: song.album,
+                      duration: song.duration, response: response, track: track) else { continue }
+            results.append(candidate)
         }
         return results
     }

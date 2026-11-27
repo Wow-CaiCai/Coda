@@ -67,6 +67,13 @@ struct NowPlayingView: View {
     @State private var portraitControlsHeight: CGFloat = 320
     @State private var portraitControlsActivityGeneration = 0
     @State private var portraitControlsInteractionActive = false
+    /// The page kept behind the large artwork. Closing a panel to the artwork
+    /// keeps that panel until its exit finishes; only then do the lyrics load
+    /// behind the artwork, so no switch ever passes through them.
+    @State private var portraitPageBehindArtwork: NowPlayingContentPage = .lyrics
+    /// The artwork state before the current update; onChange refreshes it
+    /// after the render, so a switch away from the artwork still reads true.
+    @State private var portraitArtworkWasShown = false
     @Environment(\.accessibilityVoiceOverEnabled) private var playerVoiceOverEnabled
     #endif
     @State private var showLyricsOnMobile = false
@@ -390,8 +397,13 @@ struct NowPlayingView: View {
         let showsFullControls = iPadPanel == .lyrics && playlistTrack == nil
         let showsArtwork = !showsSingleColumnLyrics && showsFullControls
         let lyricsVisible = !showsArtwork && portraitLyricsEntrancePresented
+        // Lyrics, comments, queue and playlist are independent pages: the
+        // artwork switches straight to a panel and back, never via the lyrics.
+        let contentPage = currentContentPage
+        let displayedPage = showsArtwork ? portraitPageBehindArtwork : contentPage
         let trackID = player.currentTrack?.id
-        let lyricsPrepared = player.lyrics?.isEmpty != false || portraitPreparedLyricsTrackID == trackID
+        let lyricsPrepared = !showsFullControls || player.lyrics?.isEmpty != false
+            || portraitPreparedLyricsTrackID == trackID
         return ZStack(alignment: .bottom) {
             // Keep the lyric viewport alive across artwork toggles. Recreating
             // its native text hosts during the transition stalls the first frames.
@@ -402,7 +414,10 @@ struct NowPlayingView: View {
                 .animation(PortraitPageMotion.header(presented: !showsArtwork, reduced: reducePlayerMotion),
                            value: showsArtwork)
 
-                playbackContentPanel
+                // Pages crossfade only while the panel is on screen; a page
+                // chosen from the artwork is in place before the panel appears.
+                playbackContentPanel(page: displayedPage,
+                                     animated: !showsArtwork && !portraitArtworkWasShown)
                     .environment(\.nowPlayingLyricsPresented, !showsArtwork)
                     .environment(\.nowPlayingLyricsInitialFocusPrepared, {
                         guard player.currentTrack?.id == trackID else { return }
@@ -492,8 +507,14 @@ struct NowPlayingView: View {
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+        .onChange(of: contentPage) { page in
+            if !showsArtwork { portraitPageBehindArtwork = page }
+        }
+        .onAppear { portraitArtworkWasShown = showsArtwork }
         .onChange(of: showsArtwork) { expanded in
+            portraitArtworkWasShown = expanded
             registerPortraitControlsActivity()
+            if !expanded { portraitPageBehindArtwork = contentPage }
             if expanded {
                 portraitLyricsExitStartedAt = .now
                 portraitLyricsEntrancePresented = false
@@ -506,6 +527,12 @@ struct NowPlayingView: View {
                 portraitLyricsEntrancePresented = reversesExit || reducePlayerMotion
                 portraitLyricsEntranceStartedAt = .now
             }
+        }
+        .task(id: showsArtwork) {
+            guard showsArtwork, portraitPageBehindArtwork != .lyrics else { return }
+            do { try await Task.sleep(for: .seconds(0.6)) } catch { return }
+            guard showsArtwork else { return }
+            portraitPageBehindArtwork = .lyrics
         }
         .task(id: PortraitLyricsEntranceID(expanded: showsArtwork, trackID: trackID, prepared: lyricsPrepared)) {
             guard !showsArtwork, !portraitLyricsEntrancePresented else { return }
@@ -744,64 +771,78 @@ struct NowPlayingView: View {
 
     #endif
 
+    private var currentContentPage: NowPlayingContentPage {
+        if let playlistTrack { return .playlist(playlistTrack) }
+        switch iPadPanel {
+        case .lyrics: return .lyrics
+        case .queue: return .queue
+        case .comments: return .comments
+        }
+    }
+
     private var playbackContentPanel: some View {
+        playbackContentPanel(page: currentContentPage, animated: true)
+    }
+
+    /// Shows exactly one page. Only the outgoing and incoming pages take part
+    /// in a switch; nothing else is mounted underneath.
+    private func playbackContentPanel(page: NowPlayingContentPage, animated: Bool) -> some View {
         ZStack {
-            if let track = playlistTrack {
+            switch page {
+            case .playlist(let track):
                 NowPlayingAddToPlaylistColumn(track: track) { playlistTrack = nil }
                     .id(track.id)
                     .transition(.opacity)
-            } else if iPadPanel == .comments, let track = player.currentTrack,
-               let comments = iPadComments, comments.trackID == track.id {
-                SongCommentsColumn(track: track, model: comments)
-                    .id(track.id)
-                    .transition(.opacity)
-            } else if iPadPanel == .queue {
+            case .comments:
+                if let track = player.currentTrack, let comments = iPadComments,
+                   comments.trackID == track.id {
+                    SongCommentsColumn(track: track, model: comments)
+                        .id(track.id)
+                        .transition(.opacity)
+                }
+            case .queue:
                 IOSInlinePlaybackQueueView()
                     .transition(.opacity)
-            } else if hasLyricsColumn || player.lyrics?.isInstrumental == true {
-                lyricsColumn
+            case .lyrics:
+                lyricsPanelContent
                     .transition(.opacity)
-            } else {
-                VStack(spacing: Theme.Spacing.control) {
-                    Image(systemName: "quote.bubble")
-                        .font(.system(size: 32, weight: .light))
-                    Text("暂无歌词")
-                        .font(.subheadline)
-                }
-                .foregroundStyle(.white.opacity(0.5))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.24), value: iPadPanel)
-        .animation(.easeInOut(duration: 0.24), value: playlistTrack?.id)
+        .animation(animated ? .easeInOut(duration: 0.24) : nil, value: page)
     }
 
-    private struct SplitControlSpacing {
-        // Apple Music's controls have separate gaps rather than one uniform stack gap.
-        var artwork: CGFloat { 32 }
-        var metadata: CGFloat { 12 }
-        var progress: CGFloat { 12 }
-        var transport: CGFloat { 25 }
-        var footer: CGFloat { 2 }
+    @ViewBuilder
+    private var lyricsPanelContent: some View {
+        if hasLyricsColumn || player.lyrics?.isInstrumental == true {
+            lyricsColumn
+        } else {
+            VStack(spacing: Theme.Spacing.control) {
+                Image(systemName: "quote.bubble")
+                    .font(.system(size: 32, weight: .light))
+                Text("暂无歌词")
+                    .font(.subheadline)
+            }
+            .foregroundStyle(.white.opacity(0.5))
+        }
     }
 
     private func iPadRegularLayout(size: CGSize) -> some View {
-        let shortViewport = size.height < 600
-        // Reference screenshot measured in points: 52pt seek, 64pt transport, 32pt volume.
-        let metrics = ControlMetrics(scale: 1)
-        let transportHeight: CGFloat = 64
-        let footerHeight: CGFloat = 44
-        let spacing = SplitControlSpacing()
-        let reservedHeight = spacing.artwork + iPadMetadataHeight + spacing.metadata
-            + metrics.progressHeight + spacing.progress + transportHeight + spacing.transport
-            + metrics.volumeHeight + spacing.footer + footerHeight
-        let layout = NowPlayingSplitGeometry(size: size, reservedLeftHeight: reservedHeight)
+        #if os(macOS)
+        let allowsHidingVolume = true
+        #else
+        let allowsHidingVolume = false
+        #endif
+        // Cover, controls and gaps are solved together so tall viewports
+        // scale and center the column instead of leaving a hole above the footer.
+        let plan = NowPlayingSplitColumnPlan(size: size, metadataHeight: iPadMetadataHeight,
+                                             allowsHidingVolume: allowsHidingVolume)
+        let layout = plan.geometry
+        let footerHeight = plan.footerHeight
         return HStack(spacing: 0) {
-            playbackControlColumn(coverSize: layout.playerWidth, columnWidth: layout.halfWidth,
-                                  spacing: spacing, transportHeight: transportHeight,
-                                  largeMetadata: !shortViewport, controlsWidth: layout.playerWidth,
-                                  metrics: metrics, onAddToPlaylist: togglePlaylistPanel)
-                .frame(height: layout.contentHeight)
+            playbackControlColumn(plan: plan, columnWidth: layout.halfWidth,
+                                  onAddToPlaylist: togglePlaylistPanel)
+                .frame(height: layout.contentHeight, alignment: .top)
             VStack(spacing: Theme.Spacing.small) {
                 playbackContentPanel
                     .environment(\.nowPlayingFlushPanelEdges, true)
@@ -955,13 +996,11 @@ struct NowPlayingView: View {
                     }
                     iPadPanel = iPadPanel == .comments && playlistTrack == nil ? .lyrics : .comments
                     playlistTrack = nil
-                    showLyricsOnMobile = true
                 }
                 .disabled(player.currentTrack == nil)
                 iPadPanelButton("list.bullet", label: "播放队列", selected: iPadPanel == .queue && playlistTrack == nil) {
                     iPadPanel = iPadPanel == .queue && playlistTrack == nil ? .lyrics : .queue
                     playlistTrack = nil
-                    showLyricsOnMobile = true
                 }
                 iPadPanelButton("quote.bubble", label: "歌词", selected: lyricsPanelSelected(singleColumn: singleColumn)) {
                     #if os(macOS)
@@ -1063,31 +1102,37 @@ struct NowPlayingView: View {
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
-    private func playbackControlColumn(coverSize: CGFloat, columnWidth: CGFloat,
-                                       spacing: SplitControlSpacing, transportHeight: CGFloat,
-                                       largeMetadata: Bool, controlsWidth: CGFloat, metrics: ControlMetrics,
+    private func playbackControlColumn(plan: NowPlayingSplitColumnPlan, columnWidth: CGFloat,
                                        onAddToPlaylist: (() -> Void)? = nil) -> some View {
+        let controlsWidth = plan.controlsWidth
+        let trackHeight = 7 * min(1.1, plan.scale)
         return VStack(spacing: 0) {
-            artworkView(size: coverSize)
+            Color.clear.frame(height: plan.topPadding)
+            artworkView(size: plan.coverSize)
                 .accessibilityIdentifier("splitPlayerArtwork")
-                .padding(.bottom, spacing.artwork)
+                .padding(.bottom, plan.artworkGap)
             VStack(spacing: 0) {
                 NowPlayingTrackInfoRow(onOpenDestination: openTrackDestination,
-                                       largeMetadata: largeMetadata, movesMoreToDeviceRow: true,
+                                       largeMetadata: true, movesMoreToDeviceRow: true,
                                        showsMoreBesideFavorite: true,
+                                       metadataScale: plan.scale * iPadMetadataHeight
+                                           / NowPlayingSplitColumnPlan.baseMetadataHeight,
                                        onAddToPlaylist: onAddToPlaylist)
-                    .frame(height: iPadMetadataHeight)
-                    .padding(.bottom, spacing.metadata)
-                NowPlayingScrubber(showsRemainingTime: true, rowHeight: metrics.progressHeight,
-                                   trackHeight: metrics.trackHeight)
-                    .padding(.bottom, spacing.progress)
-                PlayerTransportControls(width: controlsWidth, height: transportHeight)
-                    .padding(.bottom, spacing.transport)
-                volumeControl(rowHeight: metrics.volumeHeight, trackHeight: metrics.trackHeight)
+                    .frame(height: plan.metadataHeight)
+                    .padding(.bottom, plan.metadataGap)
+                NowPlayingScrubber(showsRemainingTime: true, rowHeight: plan.progressHeight,
+                                   trackHeight: trackHeight)
+                    .padding(.bottom, plan.progressGap)
+                PlayerTransportControls(width: controlsWidth, height: plan.transportHeight,
+                                        maxGlyphScale: plan.scale)
+                if plan.showsVolume {
+                    volumeControl(rowHeight: plan.volumeHeight, trackHeight: trackHeight)
+                        .padding(.top, plan.transportGap)
+                }
             }
             .fixedSize(horizontal: false, vertical: true)
             .frame(width: controlsWidth)
-            Spacer(minLength: spacing.footer)
+            Spacer(minLength: NowPlayingSplitColumnPlan.minimumFooterGap)
             HStack {
                 CurrentPlaybackDeviceButton()
                     .layoutPriority(-1)
@@ -1357,7 +1402,19 @@ private struct NowPlayingTrackInfoRow: View {
     var movesMoreToDeviceRow = false
     var showsMoreBesideFavorite = false
     var metadataWidth: CGFloat? = nil
+    /// Split player: metadata text follows the cover scale (Dynamic Type included).
+    var metadataScale: CGFloat? = nil
     var onAddToPlaylist: (() -> Void)? = nil
+
+    private var titleFont: Font {
+        if let metadataScale { return .system(size: 17 * metadataScale, weight: .semibold) }
+        return usesPortraitHeaderSizing ? .title3.weight(.semibold) : (largeMetadata ? Theme.Typography.cardTitle : Theme.Typography.trackTitle)
+    }
+
+    private var subtitleFont: Font {
+        if let metadataScale { return .system(size: 15 * metadataScale) }
+        return usesPortraitHeaderSizing ? .title3 : Theme.Typography.secondary
+    }
 
     var body: some View {
         Group {
@@ -1405,14 +1462,14 @@ private struct NowPlayingTrackInfoRow: View {
         VStack(alignment: alignment, spacing: usesPortraitHeaderSizing ? 2 : Theme.Spacing.tight) {
             HStack(spacing: 6) {
                 Text(player.currentTrack?.name ?? "")
-                    .font(usesPortraitHeaderSizing ? .title3.weight(.semibold) : (largeMetadata ? Theme.Typography.cardTitle : Theme.Typography.trackTitle))
+                    .font(titleFont)
                     .foregroundStyle(.white)
                     .lineLimit(1)
             }
             if let track = player.currentTrack {
                 NowPlayingTrackDestinationLinks(
                     track: track,
-                    font: usesPortraitHeaderSizing ? .title3 : Theme.Typography.secondary,
+                    font: subtitleFont,
                     color: .white.opacity(0.62),
                     onOpenDestination: onOpenDestination
                 )
@@ -1773,9 +1830,11 @@ struct NowPlayingScrubber: View {
     }
 
     var body: some View {
-        // Read the engine clock on the display schedule without publishing
-        // per-frame playback updates to the rest of the player.
-        TimelineView(.animation(paused: !updatesContinuously)) { _ in
+        // Read the engine clock without publishing per-frame playback updates
+        // to the rest of the player. 30 Hz moves the fill under a point per
+        // step; display rate (120 Hz on ProMotion) re-rendered the dock and the
+        // player every frame, stalling window and presentation animations.
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !updatesContinuously)) { _ in
             let duration = isDragging ? dragDuration : player.duration
             let position = isDragging ? dragProgress : player.livePlaybackTime
             let elapsed = position.isFinite ? max(position, 0) : clock.progress
@@ -1926,6 +1985,11 @@ private struct PortraitControlsHeightKey: PreferenceKey {
     }
 }
 #endif
+
+enum NowPlayingContentPage: Equatable {
+    case lyrics, queue, comments
+    case playlist(Track)
+}
 
 private struct PlaylistPanelSelectedKey: EnvironmentKey {
     static let defaultValue = false

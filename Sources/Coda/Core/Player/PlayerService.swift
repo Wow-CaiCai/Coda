@@ -346,7 +346,7 @@ final class PlayerService: ObservableObject {
     private var scrobbled = false
     private let historyReporter = PlaybackHistoryReporter()
     private let kugouReporter = KugouPlaybackReporter()
-    private let qishuiHistoryReporter = QishuiHistoryReporter()
+    private let cloudHistoryReporter = CloudHistoryReporter()
     private var historySession: PlaybackHistoryReporter.Session?
 
     // MARK: - Offline playback (downloads)
@@ -739,7 +739,7 @@ final class PlayerService: ObservableObject {
         guard seconds.isFinite else { return }
         cancelQishuiFeedLoad()
         qishuiFeedDrained = false
-        qishuiHistoryReporter.discontinuity()
+        cloudHistoryReporter.discontinuity()
         kugouReporter.willSeek(position: engine.position(of: activeDeck))
         let seconds = min(max(0, seconds), duration > 0 ? duration : max(0, seconds))
         // An armed/overlapping hand-over is anchored to the old timeline —
@@ -3601,14 +3601,14 @@ final class PlayerService: ObservableObject {
 
     private func samplePlaybackReporting(position: TimeInterval, advancing: Bool) {
         kugouReporter.sample(position: position, advancing: advancing)
-        qishuiHistoryReporter.sample(position: position, advancing: advancing)
+        cloudHistoryReporter.sample(position: position, advancing: advancing)
     }
 
     /// Tell the server the track started, once per track. Called from the
     /// point playback actually begins — the cache-hit path and the streaming
     /// path both reach it, and `startPlaying` clears the flag.
     private func scrobbleStartIfNeeded(_ track: Track) {
-        if !isTrial { qishuiHistoryReporter.begin(track) }
+        if !isTrial { cloudHistoryReporter.begin(track) }
         kugouReporter.begin(track: track, position: engine.position(of: activeDeck))
         guard historySession == nil else { return }
         let sourceID = source.sourceID > 0 ? source.sourceID : track.album.id
@@ -3617,7 +3617,7 @@ final class PlayerService: ObservableObject {
     }
 
     private func scrobbleIfNeeded(completed: Bool) {
-        qishuiHistoryReporter.finish()
+        cloudHistoryReporter.finish()
         if source.qishuiFeed != nil { qishuiContinuation.record(currentTrack, position: progress) }
         kugouReporter.finish(position: engine.position(of: activeDeck), completed: completed)
         guard let session = historySession, !scrobbled else { return }
@@ -4241,7 +4241,7 @@ final class PlayerService: ObservableObject {
     }
 
     func suspendForAccountChange() {
-        qishuiHistoryReporter.finish()
+        cloudHistoryReporter.finish()
         resolveGeneration += 1
         trackResolution?.task.cancel()
         trackResolution = nil

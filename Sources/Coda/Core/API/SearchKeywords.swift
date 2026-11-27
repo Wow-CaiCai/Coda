@@ -15,6 +15,10 @@ enum SearchKeywords {
         case .qishui:
             let api = QishuiMusicAPI.shared
             return try await keyword.isEmpty ? api.hotSearchWords(limit: limit) : api.searchSuggestions(keyword: keyword, limit: limit)
+        case .bodian:
+            let api = BodianMusicAPI.shared
+            let words = try await keyword.isEmpty ? api.hotSearchWords() : api.searchSuggestions(keyword: keyword)
+            return unique(words, excluding: keyword, limit: limit)
         case .netease:
             if keyword.isEmpty { return try await NeteaseAPI.searchDefaultKeyword().map { [$0] } ?? [] }
             guard let body = try await NeteaseAPI.searchSuggest(keyword) else { return [] }

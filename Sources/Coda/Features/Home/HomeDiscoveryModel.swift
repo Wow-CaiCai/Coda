@@ -74,6 +74,9 @@ final class HomeDiscoveryModel: ObservableObject {
                     case .trending: content = await self.fallbackSongs(needed: true)
                     case .regional: content = await self.fallbackRegional(needed: true)
                     case .newSongs, .radios, .forYou, .hiddenGems: content = nil
+                    // Bodian lists its modules per account; a module it left out is simply absent.
+                    case .personalPlaylists, .treasurePlaylists, .themePlaylists: content = .playlists([])
+                    case .encounterSongs, .similarSongs: content = .songs([])
                     }
                     return (slot, content)
                 }

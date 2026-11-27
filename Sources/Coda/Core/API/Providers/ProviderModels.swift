@@ -37,6 +37,7 @@ enum ProviderSongSource: String, Codable, Sendable {
     case qq
     case kugou
     case qishui
+    case bodian
 
     /// 兼容旧版本地收藏：未知或已下线来源统一回退为网易云
     init(from decoder: Decoder) throws {
@@ -77,6 +78,7 @@ struct ProviderSong: Identifiable, Hashable, Codable, Sendable {
     let kugouAlbumId: String?
     let kugouQualityHashes: [String: String]?
     let qishui: QishuiTrackReference?
+    var bodian: BodianTrackReference? = nil
     let kugouCloud: KugouCloudReference?
     /// 付费/VIP 标记（网易云：0 免费、1 VIP、4 付费单曲；QQ：0 免费、非 0 付费）
     let fee: Int
@@ -86,12 +88,13 @@ struct ProviderSong: Identifiable, Hashable, Codable, Sendable {
         switch source {
         case .qq: return "qq-\(qqMid ?? String(id))"
         case .qishui: return "qishui-\(qishui?.trackID ?? String(id))"
+        case .bodian: return "bodian-\(bodian?.musicID ?? String(id))"
         case .kugou: return "kugou-\(id)"
         case .netease: return "netease-\(id)"
         }
     }
 
-    init(id: Int, name: String, artists: String, album: String, coverURL: URL?, duration: TimeInterval, source: ProviderSongSource = .netease, qqMid: String? = nil, qqMediaMid: String? = nil, qqAlbumMID: String? = nil, qqArtistReferences: [ProviderArtist]? = nil, kugouHash: String? = nil, kugouAlbumAudioId: String? = nil, kugouMixSongID: String? = nil, kugouAlbumId: String? = nil, kugouQualityHashes: [String: String]? = nil, kugouCloud: KugouCloudReference? = nil, qishui: QishuiTrackReference? = nil, fee: Int = 0) {
+    init(id: Int, name: String, artists: String, album: String, coverURL: URL?, duration: TimeInterval, source: ProviderSongSource = .netease, qqMid: String? = nil, qqMediaMid: String? = nil, qqAlbumMID: String? = nil, qqArtistReferences: [ProviderArtist]? = nil, kugouHash: String? = nil, kugouAlbumAudioId: String? = nil, kugouMixSongID: String? = nil, kugouAlbumId: String? = nil, kugouQualityHashes: [String: String]? = nil, kugouCloud: KugouCloudReference? = nil, qishui: QishuiTrackReference? = nil, bodian: BodianTrackReference? = nil, fee: Int = 0) {
         self.id = id
         self.name = name
         self.artists = artists
@@ -109,6 +112,7 @@ struct ProviderSong: Identifiable, Hashable, Codable, Sendable {
         self.kugouAlbumId = kugouAlbumId
         self.kugouQualityHashes = kugouQualityHashes
         self.qishui = qishui
+        self.bodian = bodian
         self.kugouCloud = kugouCloud
         self.fee = fee
     }
@@ -148,7 +152,7 @@ struct ProviderSong: Identifiable, Hashable, Codable, Sendable {
         fee = json["fee"] as? Int ?? 0
     }
 
-    private enum CodingKeys: String, CodingKey { case id, name, artists, album, coverURL, duration, source, qqMid, qqMediaMid, qqAlbumMID, qqArtistReferences, kugouHash, kugouAlbumAudioId, kugouMixSongID, kugouAlbumId, kugouQualityHashes, kugouCloud, qishui, fee }
+    private enum CodingKeys: String, CodingKey { case id, name, artists, album, coverURL, duration, source, qqMid, qqMediaMid, qqAlbumMID, qqArtistReferences, kugouHash, kugouAlbumAudioId, kugouMixSongID, kugouAlbumId, kugouQualityHashes, kugouCloud, qishui, bodian, fee }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -169,6 +173,7 @@ struct ProviderSong: Identifiable, Hashable, Codable, Sendable {
         kugouAlbumId = try c.decodeIfPresent(String.self, forKey: .kugouAlbumId)
         kugouQualityHashes = try c.decodeIfPresent([String: String].self, forKey: .kugouQualityHashes)
         qishui = try c.decodeIfPresent(QishuiTrackReference.self, forKey: .qishui)
+        bodian = try c.decodeIfPresent(BodianTrackReference.self, forKey: .bodian)
         kugouCloud = try c.decodeIfPresent(KugouCloudReference.self, forKey: .kugouCloud)
         fee = try c.decodeIfPresent(Int.self, forKey: .fee) ?? 0
     }
@@ -192,6 +197,7 @@ struct ProviderSong: Identifiable, Hashable, Codable, Sendable {
         try c.encodeIfPresent(kugouAlbumId, forKey: .kugouAlbumId)
         try c.encodeIfPresent(kugouQualityHashes, forKey: .kugouQualityHashes)
         try c.encodeIfPresent(qishui, forKey: .qishui)
+        try c.encodeIfPresent(bodian, forKey: .bodian)
         try c.encodeIfPresent(kugouCloud, forKey: .kugouCloud)
         try c.encode(fee, forKey: .fee)
     }
@@ -221,6 +227,7 @@ struct ProviderPlaylist: Identifiable, Hashable, Codable, Sendable {
     var qqDirectoryID: Int? = nil
     var isQQRadio: Bool? = nil
     var qishui: QishuiPlaylistReference? = nil
+    var bodian: BodianPlaylistReference? = nil
     // Cloud-list IDs belong to an account; public collection IDs identify the source.
     var kugouGlobalCollectionID: String? = nil
     var kugouCreateUserID: String? = nil

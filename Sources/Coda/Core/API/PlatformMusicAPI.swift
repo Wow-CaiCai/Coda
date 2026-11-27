@@ -25,6 +25,8 @@ final class PlatformMusicAPI {
     private var qqFMPage = 1
     private var qqFMRequest: UUID?
     private var qqFMScene: QQMusicRecommendationMode?
+    /// Each chart's leading songs from `home/bangNew`, shown on the home toplist cards.
+    private var bodianChartPreviews: [String: [ProviderSong]] = [:]
     private var qqFMRecentIDs: [Int] = []
     private init() {}
 
@@ -94,11 +96,12 @@ final class PlatformMusicAPI {
     func register(_ song: ProviderSong) throws -> Track {
         let provider = source(song.source)
         let handles = provider == .qq ? [song.qqMid] : [song.kugouHash?.lowercased(), song.kugouAlbumAudioId]
-        let value = song.qishui?.trackID ?? handles.compactMap { $0 }.first(where: { !$0.isEmpty }) ?? String(song.id)
+        let value = song.bodian?.musicID ?? song.qishui?.trackID ?? handles.compactMap { $0 }.first(where: { !$0.isEmpty }) ?? String(song.id)
         let cloud = song.kugouCloud
         let id = Self.identifier(provider: provider, kind: cloud == nil ? "song" : "cloud", value: cloud.map { "\($0.ownerID):\($0.fileID):\(value)" } ?? value)
         registerKugouReferences(song)
         registerQishuiReferences(song)
+        registerBodianReferences(song)
         catalog.songs[id] = Self.preferredPlaybackMetadata(cached: catalog.songs[id], incoming: song)
         persist()
         var artists = [ArtistRef(id: 0, name: song.artists)]
@@ -122,6 +125,16 @@ final class PlatformMusicAPI {
                 album = AlbumRef(id: id, name: song.album, picUrl: album.picUrl)
             }
             persist()
+        } else if let reference = song.bodian {
+            if let credits = reference.artists?.filter({ !$0.id.isEmpty }), !credits.isEmpty {
+                artists = credits.map {
+                    ArtistRef(id: Self.identifier(provider: .bodian, kind: "artist", value: $0.id), name: $0.name)
+                }
+            }
+            if let albumID = reference.albumID {
+                album = AlbumRef(id: Self.identifier(provider: .bodian, kind: "album", value: albumID),
+                                 name: song.album, picUrl: album.picUrl)
+            }
         } else if let reference = song.qishui {
             if let credits = reference.artists, !credits.isEmpty {
                 artists = credits.map {
@@ -170,10 +183,26 @@ final class PlatformMusicAPI {
         }
     }
 
+    private func registerBodianReferences(_ song: ProviderSong) {
+        guard let reference = song.bodian else { return }
+        for artist in reference.artists ?? [] where !artist.id.isEmpty {
+            let id = Self.identifier(provider: .bodian, kind: "artist", value: artist.id)
+            if catalog.artists[id]?.coverURL == nil { catalog.artists[id] = artist }
+        }
+        if let albumID = reference.albumID {
+            let id = Self.identifier(provider: .bodian, kind: "album", value: albumID)
+            if catalog.albums[id] == nil {
+                catalog.albums[id] = ProviderAlbum(id: albumID, name: song.album, artistName: song.artists,
+                    coverURL: song.coverURL, source: .bodian, trackCount: nil)
+            }
+        }
+    }
+
     func restore(_ track: Track) {
         guard let song = track.platformSong else { return }
         registerKugouReferences(song)
         registerQishuiReferences(song)
+        registerBodianReferences(song)
         catalog.songs[track.id] = Self.preferredPlaybackMetadata(cached: catalog.songs[track.id], incoming: song)
     }
 
@@ -196,11 +225,11 @@ final class PlatformMusicAPI {
     func tracks(_ songs: [ProviderSong]) throws -> [Track] { try songs.map(register) }
     func playlist(_ item: ProviderPlaylist, owned: Bool = false, liked: Bool = false, chart: Bool = false) throws -> PlaylistSummary {
         let kind = item.qishui?.radio != nil || item.isQQRadio == true ? "radio" : (chart ? "chart" : "playlist")
-        let id = Self.identifier(provider: source(item.source), kind: kind, value: item.qishui?.playlistID ?? String(item.id))
+        let id = Self.identifier(provider: source(item.source), kind: kind, value: item.bodian?.playlistID ?? item.qishui?.playlistID ?? String(item.id))
         var metadata = item
         // The catalog is shared across accounts. Subscription state belongs to
         // the active library and must never be restored from this metadata.
-        if item.source == .qishui { metadata.isSubscribed = nil }
+        if item.source == .qishui || item.source == .bodian { metadata.isSubscribed = nil }
         catalog.playlists[id] = metadata
         if chart { catalog.charts.insert(id) }
         persist()
@@ -216,6 +245,7 @@ final class PlatformMusicAPI {
         let ticket = MusicProviderContext.shared.ticket
         let items: [ProviderPlaylist]
         if provider == .qishui { items = try await QishuiMusicAPI.shared.recommendedPlaylists(limit: limit) }
+        else if provider == .bodian { items = try await BodianMusicAPI.shared.recommendedPlaylists(limit: limit) }
         else if provider == .qq { items = try await qqRecommendedPlaylists(limit: limit) }
         else { items = try await KugouMusicAPI.shared.recommendPlaylists(limit: limit) }
         try MusicProviderContext.shared.check(ticket)
@@ -243,6 +273,10 @@ final class PlatformMusicAPI {
         let items: [ProviderPlaylist]
         if provider == .qishui {
             items = try await QishuiMusicAPI.shared.charts()
+        } else if provider == .bodian {
+            let charts = try await BodianMusicAPI.shared.charts()
+            bodianChartPreviews = Dictionary(charts.map { ($0.playlist.bodian?.playlistID ?? "", $0.preview) }, uniquingKeysWith: { $1 })
+            items = charts.map(\.playlist)
         } else if provider == .qq {
             items = try await QQMusicAPI.shared.topLists().map { .init(id: $0.id, name: $0.name, coverURL: $0.coverURL, source: .qq) }
         } else {
@@ -272,6 +306,8 @@ final class PlatformMusicAPI {
                 item.isSubscribed = true
                 return item
             }
+        } else if provider == .bodian {
+            items = try await BodianMusicAPI.shared.userPlaylists()
         } else {
             items = try await (provider == .qq ? QQMusicAPI.shared.userPlaylists(uin: QQMusicAuth.shared.playlistUin) : KugouMusicAPI.shared.userPlaylists())
         }
@@ -288,7 +324,7 @@ final class PlatformMusicAPI {
             var deleted = catalog.pendingDeleted ?? [:]; deleted[key] = reconciled.remaining; catalog.pendingDeleted = deleted
         }
         return try items.map {
-            try playlist($0, owned: provider != .qishui || $0.isSubscribed != true, liked: isFavoritesPlaylist($0))
+            try playlist($0, owned: (provider != .qishui && provider != .bodian) || $0.isSubscribed != true, liked: isFavoritesPlaylist($0))
         }
     }
     private func reconcileCreatedPlaylists(remote: [ProviderPlaylist], ownerID: String) -> [ProviderPlaylist] {
@@ -301,6 +337,7 @@ final class PlatformMusicAPI {
 
     private func isFavoritesPlaylist(_ item: ProviderPlaylist) -> Bool {
         if item.source == .qishui { return item.qishui?.type == 1 }
+        if item.source == .bodian { return item.bodian != nil && item.bodian?.playlistID == BodianMusicAPI.shared.favoritesID }
         if item.source == .qq { return item.id == QQMusicAPI.qqLikedPlaylistID }
         return ["我喜欢", "我的喜欢", "我喜欢的音乐", "喜欢的音乐"].contains(item.name)
     }
@@ -343,6 +380,27 @@ final class PlatformMusicAPI {
                 }
                 item.isSubscribed = AccountStore.shared.subscribedPlaylists.contains { $0.id == id }
             }
+        } else if provider == .bodian {
+            guard let reference = item.bodian else { throw MusicProviderError.missingTrack }
+            if let index = reference.aiIndex {
+                let detail = try await BodianMusicAPI.shared.aiPlaylist(index: index, passRecName: reference.passRecName ?? "")
+                songs = detail.songs
+                if !detail.title.isEmpty { item.name = detail.title }
+                if item.coverURL == nil { item.coverURL = detail.songs.first?.coverURL }
+            } else if reference.isChart == true {
+                songs = try await BodianMusicAPI.shared.chartSongs(reference.playlistID)
+            } else {
+            let response = try await BodianMusicAPI.shared.playlistDetail(reference)
+            songs = response.songs
+            if var metadata = response.playlist, !metadata.name.isEmpty {
+                metadata.bodian = reference
+                metadata.coverURL = metadata.coverURL ?? item.coverURL
+                metadata.ownerID = metadata.ownerID ?? item.ownerID
+                metadata.isOwned = item.isOwned
+                item = metadata
+            }
+            item.isSubscribed = AccountStore.shared.subscribedPlaylists.contains { $0.id == id }
+            }
         } else if catalog.charts.contains(id) {
             songs = try await (provider == .qq ? QQMusicAPI.shared.topListSongs(topid: item.id, limit: 100) : KugouMusicAPI.shared.rankSongs(rankID: item.id))
         } else {
@@ -355,10 +413,13 @@ final class PlatformMusicAPI {
         }
         try MusicProviderContext.shared.check(ticket)
         let mapped = try tracks(songs)
-        let liked = provider == .qishui ? isFavoritesPlaylist(item) : item.id == QQMusicAPI.qqLikedPlaylistID
-        let owned = provider == .qishui
-            ? QishuiMusicAPI.shared.isLoggedIn && (liked || item.ownerID == QishuiMusicAPI.shared.userID)
-            : item.id == QQMusicAPI.qqLikedPlaylistID
+        let liked = provider == .qishui || provider == .bodian ? isFavoritesPlaylist(item) : item.id == QQMusicAPI.qqLikedPlaylistID
+        let owned: Bool
+        switch provider {
+        case .qishui: owned = QishuiMusicAPI.shared.isLoggedIn && (liked || item.ownerID == QishuiMusicAPI.shared.userID)
+        case .bodian: owned = BodianMusicAPI.shared.isLoggedIn && (liked || item.ownerID == BodianMusicAPI.shared.userID)
+        default: owned = item.id == QQMusicAPI.qqLikedPlaylistID
+        }
         var detail = PlaylistDetail(summary: try playlist(item, owned: owned, liked: liked, chart: isQishuiChart(id)))
         detail.qishuiFeed = feed
         detail.tracks = mapped
@@ -374,6 +435,12 @@ final class PlatformMusicAPI {
     }
 
     func isQQRadio(_ id: Int) -> Bool { catalog.playlists[id]?.isQQRadio == true }
+
+    /// Charts, AI playlists and 「我喜欢」 cannot be saved to the library.
+    func isBodianCollectible(_ id: Int) -> Bool {
+        guard let item = catalog.playlists[id], let reference = item.bodian else { return false }
+        return reference.aiIndex == nil && reference.isChart != true && !isFavoritesPlaylist(item)
+    }
 
     func isQishuiChart(_ id: Int) -> Bool {
         catalog.charts.contains(id) && catalog.playlists[id]?.source == .qishui
@@ -393,6 +460,14 @@ final class PlatformMusicAPI {
                 previousRanks[track.id] = entry.previousRank
             }
             return (tracks, previousRanks, [:])
+        }
+        if provider == .bodian, let reference = catalog.playlists[id]?.bodian, reference.isChart == true {
+            let ticket = MusicProviderContext.shared.ticket
+            let preview = bodianChartPreviews[reference.playlistID] ?? []
+            var songs = (try? await BodianMusicAPI.shared.chartTopSongs(reference.playlistID, limit: 10)) ?? []
+            try MusicProviderContext.shared.check(ticket)
+            if songs.count < preview.count { songs = preview }
+            if !songs.isEmpty { return (try tracks(Array(songs.prefix(10))), [:], [:]) }
         }
         guard provider == .qq else {
             return (Array(try await playlistDetail(id: id).playlist.tracks.prefix(10)), [:], [:])
@@ -447,6 +522,9 @@ final class PlatformMusicAPI {
             } else {
                 songs = try await QQMusicAPI.shared.recommendSongs()
             }
+        } else if provider == .bodian {
+            // 「潮趣日推」is the first home AI playlist and Bodian's daily picks.
+            songs = try await fm ? BodianMusicAPI.shared.personalFM() : BodianMusicAPI.shared.aiPlaylist(index: 0, passRecName: "").songs
         } else { songs = try await (fm ? KugouMusicAPI.shared.personalFM() : KugouMusicAPI.shared.everydayRecommend()) }
         try MusicProviderContext.shared.check(ticket)
         return try tracks(songs)
@@ -594,6 +672,9 @@ final class PlatformMusicAPI {
         case .qq:
             guard let mid = item.qqMid else { throw MusicProviderError.missingTrack }
             try await QQMusicAPI.shared.like(songID: item.id, songmid: mid, liked: liked)
+        case .bodian:
+            guard let musicID = item.bodian?.musicID else { throw MusicProviderError.missingTrack }
+            try await BodianMusicAPI.shared.setLiked(musicID: musicID, liked: liked)
         case .kugou:
             let list = try await kugouLikedList()
             if liked { try await KugouMusicAPI.shared.addSongs(listID: list.id, songs: [item]) }
@@ -625,6 +706,7 @@ final class PlatformMusicAPI {
                 songCount: type == .songs ? page.total : nil, albumCount: type == .albums ? page.total : nil,
                 artistCount: type == .artists ? page.total : nil, playlistCount: type == .playlists ? page.total : nil)
         }
+        if provider == .bodian { return try await bodianSearch(keyword, type: type, limit: limit, offset: offset, ticket: ticket) }
         if provider == .qq {
             let response: QQMusicAPI.CatalogSearchPage?
             do {
@@ -689,6 +771,14 @@ final class PlatformMusicAPI {
             try MusicProviderContext.shared.check(ticket)
             let summary = try Self.decode(ArtistSummary.self, ["id": id, "name": metadata?.name ?? item.name,
                 "picUrl": (metadata?.coverURL ?? item.coverURL)?.absoluteString ?? ""])
+            return .init(artist: summary, hotSongs: try tracks(songs))
+        }
+        if provider == .bodian {
+            let (metadata, description, songs) = try await BodianMusicAPI.shared.artistDetail(item.id)
+            try MusicProviderContext.shared.check(ticket)
+            if let metadata { catalog.artists[id] = metadata; persist() }
+            let summary = try Self.decode(ArtistSummary.self, ["id": id, "name": metadata?.name ?? item.name,
+                "picUrl": (metadata?.coverURL ?? item.coverURL)?.absoluteString ?? "", "briefDesc": description])
             return .init(artist: summary, hotSongs: try tracks(songs))
         }
         if provider == .kugou, Int(item.id) == nil || item.coverURL == nil {
@@ -788,6 +878,21 @@ final class PlatformMusicAPI {
                     "br": resource.bitrate ?? 0, "size": resource.size, "type": resource.format, "level": resource.level.rawValue
                 ]))
                 continue
+            } else if provider == .bodian {
+                guard let reference = item.bodian else { throw MusicProviderError.missingTrack }
+                // A preview, a regional block or missing rights all leave the
+                // URL empty, which lets playback look for the song elsewhere.
+                let resource: BodianMusicAPI.PlaybackResource?
+                do { resource = try await BodianMusicAPI.shared.playback(reference, quality: AudioQuality(rawValue: level)) }
+                catch let error as BodianError where error != .authRequired { resource = nil }
+                try MusicProviderContext.shared.check(ticket)
+                var object: [String: Any] = ["id": id, "time": resource?.durationMS ?? Int(item.duration * 1000),
+                                             "code": resource == nil ? 404 : 200, "br": resource?.bitrate ?? 0]
+                object["url"] = resource?.url
+                object["type"] = resource?.format
+                object["level"] = resource?.quality.rawValue
+                result.append(try Self.decode(SongURLData.self, object))
+                continue
             } else if provider == .qq {
                 guard let mid = item.qqMid else { throw MusicProviderError.missingTrack }
                 let resolved = try await QQMusicAPI.shared.songURLResult(songmid: mid, mediaMid: item.qqMediaMid, quality: quality)
@@ -821,6 +926,12 @@ final class PlatformMusicAPI {
             let entries = try await QishuiMusicAPI.shared.recentSongPlays(limit: limit)
             try MusicProviderContext.shared.check(ticket)
             return try entries.map { .init(song: try register($0.song), playedAt: $0.playedAt) }
+        case .bodian:
+            // Bodian's history has no timestamps; keep its order with times one second apart.
+            let songs = try await BodianMusicAPI.shared.recentPlays(limit: limit)
+            try MusicProviderContext.shared.check(ticket)
+            let now = Date()
+            return try songs.enumerated().map { .init(song: try register($0.element), playedAt: now.addingTimeInterval(-Double($0.offset))) }
         default:
             throw MusicProviderError.unsupported
         }
@@ -897,6 +1008,12 @@ final class PlatformMusicAPI {
             try MusicProviderContext.shared.check(ticket)
             return response
         }
+        if provider == .bodian {
+            guard let musicID = item.bodian?.musicID else { throw MusicProviderError.missingTrack }
+            let response = try await BodianMusicAPI.shared.lyric(musicID: musicID)
+            try MusicProviderContext.shared.check(ticket)
+            return response
+        }
         if provider == .qq {
             guard let mid = item.qqMid else { throw MusicProviderError.missingTrack }
             let lyrics = try await QQMusicAPI.shared.lyric(songmid: mid)
@@ -932,6 +1049,10 @@ extension PlatformMusicAPI {
         if provider == .qishui {
             let page = try await QishuiMusicAPI.shared.artistContent(artist.id, kind: .albums, limit: limit, offset: offset)
             items = page.items.compactMap(QishuiMusicAPI.albumMetadata)
+            hasMore = page.hasMore
+        } else if provider == .bodian {
+            let page = try await BodianMusicAPI.shared.artistAlbums(artist.id, limit: limit, offset: offset)
+            items = page.albums
             hasMore = page.hasMore
         } else {
             let fetched: [ProviderAlbum]
@@ -974,6 +1095,22 @@ extension PlatformMusicAPI {
             let detail = try Self.decode(AlbumDetail.self, object)
             return .init(album: detail, songs: try tracks(songs))
         }
+        if provider == .bodian {
+            let (metadata, artist, description, songs) = try await BodianMusicAPI.shared.albumDetail(item.id)
+            try MusicProviderContext.shared.check(ticket)
+            if let metadata { catalog.albums[id] = metadata }
+            var object: [String: Any] = ["id": id, "name": metadata?.name ?? item.name, "size": songs.count,
+                "picUrl": (metadata?.coverURL ?? item.coverURL)?.absoluteString ?? "", "description": description,
+                "publishTime": metadata?.releaseDateMS ?? 0]
+            if let artist {
+                let artistID = Self.identifier(provider: .bodian, kind: "artist", value: artist.id)
+                if catalog.artists[artistID] == nil { catalog.artists[artistID] = artist }
+                object["artist"] = ["id": artistID, "name": artist.name, "picUrl": artist.coverURL?.absoluteString ?? ""]
+            }
+            persist()
+            let detail = try Self.decode(AlbumDetail.self, object)
+            return .init(album: detail, songs: try tracks(songs))
+        }
         if provider == .qq {
             let songs = try await QQMusicAPI.shared.albumSongs(mid: item.id)
             try MusicProviderContext.shared.check(ticket)
@@ -996,6 +1133,17 @@ extension PlatformMusicAPI {
             return page
         }
         let comments: [ProviderSongComment], total: Int
+        if provider == .bodian {
+            guard let musicID = item.bodian?.musicID else { throw MusicProviderError.missingTrack }
+            let page = try await BodianMusicAPI.shared.comments(musicID: musicID, sort: sort,
+                                                                page: offset / BodianMusicAPI.commentPageSize + 1)
+            try MusicProviderContext.shared.check(ticket)
+            let mapped: [[String: Any]] = page.comments.map { comment in
+                ["commentId": comment.id, "content": comment.content, "time": comment.time.timeIntervalSince1970 * 1000,
+                 "likedCount": comment.likedCount, "user": ["userId": 0, "nickname": comment.nickname, "avatarUrl": comment.avatarURL?.absoluteString ?? ""]]
+            }
+            return try Self.decode(SongCommentsPage.self, ["comments": mapped, "hotComments": mapped, "total": page.total, "more": page.more])
+        }
         if provider == .qq {
             let page = try await QQMusicAPI.shared.comments(songID: item.id, limit: limit, pagenum: offset / max(1, limit))
             comments = page.comments; total = page.total
@@ -1024,6 +1172,7 @@ extension PlatformMusicAPI {
             return [.radios: .playlists(try radios.map { try playlist($0) })]
         }
         if provider == .kugou { return try await kugouHomeDiscovery(ticket: ticket) }
+        if provider == .bodian { return try await bodianHomeDiscovery(ticket: ticket) }
         async let playlists = try? recommendedPlaylists(limit: 30)
         async let songs = try? recommendations()
         async let radios = try? qqHomeRadios()
@@ -1056,6 +1205,24 @@ extension PlatformMusicAPI {
         if let forYouSongs, !forYouSongs.isEmpty { content[.forYou] = .songs(try tracks(forYouSongs)) }
         if let newSongs, !newSongs.isEmpty { content[.newSongs] = .songs(try tracks(newSongs)) }
         if let gemSongs, !gemSongs.isEmpty { content[.hiddenGems] = .songs(try tracks(gemSongs)) }
+        guard !content.isEmpty else { throw URLError(.cannotLoadFromNetwork) }
+        return content
+    }
+
+    /// 波点首页：按 `service/home/index` 的模块顺序取单曲与歌单栏位。
+    private func bodianHomeDiscovery(ticket: UUID) async throws -> [HomeDiscoverySlot: HomeDiscoveryContent] {
+        let sections = try await BodianMusicAPI.shared.homeSections()
+        try MusicProviderContext.shared.check(ticket)
+        var content: [HomeDiscoverySlot: HomeDiscoveryContent] = [:]
+        for section in sections {
+            guard let slot = HomeDiscoverySlot.bodian(moduleType: section.type), content[slot] == nil else { continue }
+            switch section.content {
+            case .songs(let songs): content[slot] = .songs(try tracks(songs))
+            case .playlists(let lists):
+                var seen = Set<Int>()
+                content[slot] = .playlists(try lists.map { try playlist($0) }.filter { seen.insert($0.id).inserted })
+            }
+        }
         guard !content.isEmpty else { throw URLError(.cannotLoadFromNetwork) }
         return content
     }
@@ -1270,6 +1437,7 @@ extension PlatformMusicAPI {
         case .qq: return try await renameQQPlaylist(id: id, name: name)
         case .qishui: return try await renameQishuiPlaylist(id: id, name: name)
         case .kugou: return try await renameKugouPlaylist(id: id, name: name)
+        case .bodian: return try await renameBodianPlaylist(id: id, name: name)
         case .netease: throw MusicProviderError.unsupported
         }
     }
@@ -1502,5 +1670,157 @@ extension PlatformMusicAPI {
         var remaining = pending
         for (id, item) in pending where item.ownerID == ownerID && ids.contains(item.id) { remaining[id] = nil }
         return (remote + remaining.values.filter { $0.ownerID == ownerID }.sorted { $0.id < $1.id }, remaining)
+    }
+}
+
+extension PlatformMusicAPI {
+    func bodianCollectedAlbums() async throws -> [AlbumSummary] {
+        guard provider == .bodian else { throw MusicProviderError.unsupported }
+        let ticket = MusicProviderContext.shared.ticket
+        let items = try await BodianMusicAPI.shared.collectedAlbums()
+        try MusicProviderContext.shared.check(ticket)
+        return try registerProviderAlbums(items, provider: .bodian)
+    }
+
+    /// Only the account's own lists and 「我喜欢」 accept edits.
+    func updateBodianPlaylistTracks(id: Int, trackIDs: [Int], adding: Bool) async throws {
+        guard provider == .bodian, let item = catalog.playlists[id], item.source == .bodian,
+              let reference = item.bodian, BodianMusicAPI.shared.isLoggedIn,
+              item.ownerID == BodianMusicAPI.shared.userID || isFavoritesPlaylist(item) else { throw MusicProviderError.unsupported }
+        let remoteIDs = try trackIDs.map { trackID -> String in
+            let song = try song(trackID)
+            guard let musicID = song.bodian?.musicID else { throw MusicProviderError.missingTrack }
+            return musicID
+        }
+        let ticket = MusicProviderContext.shared.ticket
+        try await BodianMusicAPI.shared.editPlaylist(reference.playlistID, musicIDs: remoteIDs, adding: adding)
+        try MusicProviderContext.shared.check(ticket)
+        AccountStore.shared.invalidateLibrary()
+    }
+}
+
+extension PlatformMusicAPI {
+    fileprivate func bodianSearch(_ keyword: String, type: NeteaseAPI.SearchType, limit: Int, offset: Int,
+                                  ticket: UUID) async throws -> NeteaseAPI.SearchResult {
+        let api = BodianMusicAPI.shared
+        switch type {
+        case .songs:
+            let page = try await api.searchSongs(keyword: keyword, limit: limit, offset: offset)
+            try MusicProviderContext.shared.check(ticket)
+            return .init(songs: try tracks(page.songs), albums: nil, artists: nil, playlists: nil,
+                         songCount: page.total, albumCount: nil, artistCount: nil, playlistCount: nil)
+        case .albums:
+            let page = try await api.searchAlbums(keyword: keyword, limit: limit, offset: offset)
+            try MusicProviderContext.shared.check(ticket)
+            return .init(songs: nil, albums: try registerProviderAlbums(page.albums, provider: .bodian), artists: nil, playlists: nil,
+                         songCount: nil, albumCount: page.total, artistCount: nil, playlistCount: nil)
+        case .artists:
+            let page = try await api.searchArtists(keyword: keyword, limit: limit, offset: offset)
+            try MusicProviderContext.shared.check(ticket)
+            return .init(songs: nil, albums: nil, artists: try registerProviderArtists(page.artists, provider: .bodian), playlists: nil,
+                         songCount: nil, albumCount: nil, artistCount: page.total, playlistCount: nil)
+        case .playlists:
+            let page = try await api.searchPlaylists(keyword: keyword, limit: limit, offset: offset)
+            try MusicProviderContext.shared.check(ticket)
+            return .init(songs: nil, albums: nil, artists: nil, playlists: try page.playlists.map { try playlist($0) },
+                         songCount: nil, albumCount: nil, artistCount: nil, playlistCount: page.total)
+        }
+    }
+
+    func bodianCategoryPlaylists(id: Int, limit: Int, offset: Int) async throws -> (playlists: [PlaylistSummary], hasMore: Bool) {
+        let ticket = MusicProviderContext.shared.ticket
+        let page = try await BodianMusicAPI.shared.categoryPlaylists(id, limit: limit, offset: offset)
+        try MusicProviderContext.shared.check(ticket)
+        return (try page.playlists.map { try playlist($0) }, page.hasMore)
+    }
+
+    func createBodianPlaylist(name: String, isPrivate: Bool) async throws -> Int {
+        guard provider == .bodian else { throw MusicProviderError.unsupported }
+        let ticket = MusicProviderContext.shared.ticket
+        let item = try await BodianMusicAPI.shared.createPlaylist(name: name, isPrivate: isPrivate)
+        try MusicProviderContext.shared.check(ticket)
+        var pending = catalog.pendingCreated ?? [:]; pending[item.id] = item; catalog.pendingCreated = pending
+        let summary = try playlist(item, owned: true)
+        AccountStore.shared.insertCreatedPlaylist(summary)
+        return summary.id
+    }
+
+    /// The account's own lists other than 「我喜欢」.
+    private func ownedBodianPlaylist(_ id: Int) throws -> ProviderPlaylist {
+        guard provider == .bodian, let item = catalog.playlists[id], item.source == .bodian, let reference = item.bodian,
+              reference.aiIndex == nil, reference.isChart != true, !isFavoritesPlaylist(item),
+              BodianMusicAPI.shared.isLoggedIn, item.ownerID == BodianMusicAPI.shared.userID else { throw MusicProviderError.unsupported }
+        return item
+    }
+
+    func deleteBodianPlaylist(id: Int) async throws {
+        let item = try ownedBodianPlaylist(id)
+        let ticket = MusicProviderContext.shared.ticket
+        try await BodianMusicAPI.shared.deletePlaylist(item.bodian?.playlistID ?? "")
+        try MusicProviderContext.shared.check(ticket)
+        catalog.pendingCreated?[item.id] = nil
+        catalog.playlists[id] = nil
+        persist()
+        AccountStore.shared.removeCreatedPlaylist(id: id)
+    }
+
+    func renameBodianPlaylist(id: Int, name: String) async throws -> String {
+        var item = try ownedBodianPlaylist(id)
+        let ticket = MusicProviderContext.shared.ticket
+        let verified = try await BodianMusicAPI.shared.renamePlaylist(item.bodian?.playlistID ?? "", name: name)
+        try MusicProviderContext.shared.check(ticket)
+        item.name = verified
+        catalog.playlists[id] = item
+        catalog.pendingCreated?[item.id]?.name = verified
+        persist()
+        AccountStore.shared.renameCreatedPlaylist(id: id, name: verified)
+        return verified
+    }
+
+    func setBodianCollection(_ kind: BodianMusicAPI.CollectionKind, id: Int, saved: Bool) async throws {
+        guard provider == .bodian else { throw MusicProviderError.unsupported }
+        let remoteID: String
+        var source: Int?
+        switch kind {
+        case .playlist:
+            guard let item = catalog.playlists[id], item.source == .bodian, let reference = item.bodian,
+                  reference.aiIndex == nil, reference.isChart != true, !isFavoritesPlaylist(item),
+                  item.ownerID != BodianMusicAPI.shared.userID else { throw MusicProviderError.unsupported }
+            remoteID = reference.playlistID
+            source = reference.source
+        case .album:
+            guard let item = catalog.albums[id], item.source == .bodian else { throw MusicProviderError.missingTrack }
+            remoteID = item.id
+        case .artist:
+            guard let item = catalog.artists[id], item.source == .bodian, !item.id.isEmpty else { throw MusicProviderError.missingTrack }
+            remoteID = item.id
+        }
+        let ticket = MusicProviderContext.shared.ticket
+        try await BodianMusicAPI.shared.setCollected(kind, id: remoteID, source: source, saved: saved)
+        try MusicProviderContext.shared.check(ticket)
+        if kind == .playlist, var item = catalog.playlists[id] { item.isSubscribed = saved; catalog.playlists[id] = item; persist() }
+        SidebarResources.libraryChanged()
+    }
+
+    func bodianAlbumCollected(id: Int) async throws -> Bool? {
+        guard provider == .bodian, let item = catalog.albums[id], item.source == .bodian else { throw MusicProviderError.missingTrack }
+        let ticket = MusicProviderContext.shared.ticket
+        let state = try await BodianMusicAPI.shared.isAlbumCollected(item.id)
+        try MusicProviderContext.shared.check(ticket)
+        return state
+    }
+
+    func bodianFollowedArtists() async throws -> [ArtistSummary] {
+        guard provider == .bodian else { throw MusicProviderError.unsupported }
+        let ticket = MusicProviderContext.shared.ticket
+        let items = try await BodianMusicAPI.shared.followedArtists()
+        try MusicProviderContext.shared.check(ticket)
+        let result = try items.map { item in
+            let id = Self.identifier(provider: .bodian, kind: "artist", value: item.id)
+            catalog.artists[id] = item
+            return try Self.decode(ArtistSummary.self, ["id": id, "name": item.name, "picUrl": item.coverURL?.absoluteString ?? "", "followed": true])
+        }
+        persist()
+        return result
     }
 }

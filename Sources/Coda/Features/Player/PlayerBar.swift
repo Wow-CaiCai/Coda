@@ -436,8 +436,10 @@ struct PlayerTransportControls: View {
     @EnvironmentObject private var player: PlayerService
     let width: CGFloat
     var height: CGFloat = 64
+    /// The split player lets glyphs grow with its cover.
+    var maxGlyphScale: CGFloat = 1
 
-    private var glyphScale: CGFloat { min(1, width / 280) }
+    private var glyphScale: CGFloat { min(maxGlyphScale, width / 280) }
 
     private var orderIcon: String {
         #if os(macOS)

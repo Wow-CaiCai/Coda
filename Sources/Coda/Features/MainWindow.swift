@@ -692,7 +692,8 @@ struct MainWindowConfigurator: NSViewRepresentable {
             if !window.styleMask.contains(.fullSizeContentView) {
                 window.styleMask.insert(.fullSizeContentView)
             }
-            if !window.isMovableByWindowBackground { window.isMovableByWindowBackground = true }
+            // Only the titlebar strip drags the window; content clicks never move it.
+            if window.isMovableByWindowBackground { window.isMovableByWindowBackground = false }
             if let toolbar = window.toolbar, toolbar.isVisible != showsNavigationBar {
                 toolbar.isVisible = showsNavigationBar
             }

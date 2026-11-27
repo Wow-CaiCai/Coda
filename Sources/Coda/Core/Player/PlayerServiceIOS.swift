@@ -254,7 +254,7 @@ final class PlayerService: ObservableObject {
     private var reportingBitrate: Int?
     private let historyReporter = PlaybackHistoryReporter()
     private let kugouReporter = KugouPlaybackReporter()
-    private let qishuiHistoryReporter = QishuiHistoryReporter()
+    private let cloudHistoryReporter = CloudHistoryReporter()
     private var historySession: PlaybackHistoryReporter.Session?
 
     // MARK: - Offline playback (downloads)
@@ -594,7 +594,7 @@ final class PlayerService: ObservableObject {
         scheduleLyricsResync()
         cancelQishuiFeedLoad()
         qishuiFeedDrained = false
-        qishuiHistoryReporter.discontinuity()
+        cloudHistoryReporter.discontinuity()
         kugouReporter.willSeek(position: engine.currentPlaybackTime ?? progress)
         let target = min(max(0, seconds), duration > 0 ? duration : max(0, seconds))
         zzTrace("seek target=\(target) item=\(engine.itemID != nil) state=\(engine.state) progress=\(progress)")
@@ -1967,12 +1967,12 @@ final class PlayerService: ObservableObject {
 
     private func samplePlaybackReporting(position: TimeInterval, advancing: Bool) {
         kugouReporter.sample(position: position, advancing: advancing)
-        qishuiHistoryReporter.sample(position: position, advancing: advancing)
+        cloudHistoryReporter.sample(position: position, advancing: advancing)
     }
 
     private func scrobbleStartIfNeeded() {
         guard let track = currentTrack else { return }
-        if !isTrial { qishuiHistoryReporter.begin(track) }
+        if !isTrial { cloudHistoryReporter.begin(track) }
         kugouReporter.begin(track: track, position: engine.currentPlaybackTime ?? progress)
         guard historySession == nil else { return }
         let sourceID = source.sourceID > 0 ? source.sourceID : track.album.id
@@ -1981,7 +1981,7 @@ final class PlayerService: ObservableObject {
     }
 
     private func scrobbleIfNeeded(completed: Bool) {
-        qishuiHistoryReporter.finish()
+        cloudHistoryReporter.finish()
         if source.qishuiFeed != nil { qishuiContinuation.record(currentTrack, position: progress) }
         kugouReporter.finish(position: engine.currentPlaybackTime ?? progress, completed: completed)
         guard let session = historySession, !scrobbled else { return }
@@ -2116,7 +2116,7 @@ final class PlayerService: ObservableObject {
     }
 
     func suspendForAccountChange() {
-        qishuiHistoryReporter.finish()
+        cloudHistoryReporter.finish()
         resolveGeneration += 1
         trackResolution?.task.cancel()
         trackResolution = nil

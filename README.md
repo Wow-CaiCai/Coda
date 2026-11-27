@@ -28,17 +28,18 @@
 
 ## 所有曲库，一个入口。
 
-网易云音乐、QQ 音乐、酷狗音乐、汽水音乐，在同一个界面里搜索、收藏、播放，不必在四个 App 之间来回跳转。
+网易云音乐、QQ 音乐、酷狗音乐、汽水音乐、波点音乐，在同一个界面里搜索、收藏、播放，不必在五个 App 之间来回跳转。
 
 扫码或导入凭证即可登录。所有平台的账号并排陈列，在线状态与会员身份一目了然，轻点即可切换。登录数据可一键导出到剪贴板，换一台设备再导入，无需重新扫码。
 
 <p align="center">
-  <img src="docs/assets/screenshots/ios/home.png" width="23%" alt="网易云音乐首页">
-  <img src="docs/assets/screenshots/ios/home-qq.png" width="23%" alt="QQ 音乐首页">
-  <img src="docs/assets/screenshots/ios/home-kugou.png" width="23%" alt="酷狗音乐首页">
-  <img src="docs/assets/screenshots/ios/home-qishui.png" width="23%" alt="汽水音乐首页">
+  <img src="docs/assets/screenshots/ios/home.png" width="19%" alt="网易云音乐首页">
+  <img src="docs/assets/screenshots/ios/home-qq.png" width="19%" alt="QQ 音乐首页">
+  <img src="docs/assets/screenshots/ios/home-kugou.png" width="19%" alt="酷狗音乐首页">
+  <img src="docs/assets/screenshots/ios/home-qishui.png" width="19%" alt="汽水音乐首页">
+  <img src="docs/assets/screenshots/ios/home-bodian.png" width="19%" alt="波点音乐首页">
 </p>
-<p align="center"><sub>网易云音乐 · QQ 音乐 · 酷狗音乐 · 汽水音乐</sub></p>
+<p align="center"><sub>网易云音乐 · QQ 音乐 · 酷狗音乐 · 汽水音乐 · 波点音乐</sub></p>
 
 ## 每张封面，都是一种颜色。
 
@@ -180,6 +181,7 @@
 | [XIaodou0416/Beans-Music](https://github.com/XIaodou0416/Beans-Music)                                                                                                                                                                                       | QQ 音乐、酷狗音乐接口与登录             | 使用 |
 | [WXRIW/Lyricify-Lyrics-Helper](https://github.com/WXRIW/Lyricify-Lyrics-Helper)                                                                                                                                                                             | 多平台歌词获取与 KRC 解码               | 使用 |
 | [guowenye/qishui-api](https://github.com/guowenye/qishui-api) · [sodahub-org/libresoda](https://github.com/sodahub-org/libresoda) · [sodahub-org/sodam](https://github.com/sodahub-org/sodam)                                                             | 汽水音乐接口、播放与音频解密            | 使用 |
+| [Mintcolour/bodian-music-api](https://github.com/Mintcolour/bodian-music-api) · [chthollyphile/folia-major](https://github.com/chthollyphile/folia-major) · [ldm0715/bowen_music](https://github.com/ldm0715/bowen_music) | 波点音乐接口、扫码登录、首页模块与逐字歌词解码 | 使用 |
 | [yakult-green-tea/qq-music-api](https://github.com/yakult-green-tea/qq-music-api) · [jixunmoe/qmweb-sign](https://github.com/jixunmoe/qmweb-sign)                                                                                                          | QQ 音乐收藏操作与请求签名               | 使用 |
 | [NeteaseCloudMusicApiEnhanced/api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)                                                                                                                                                   | 网易云音乐听歌记录上报                  | 使用 |
 | [lucide-icons/lucide](https://github.com/lucide-icons/lucide)                                                                                                                                                                                               | 一些界面图标                            | 使用 |
@@ -192,5 +194,7 @@
 | [jayfunc/BetterLyrics](https://github.com/jayfunc/BetterLyrics)                                                                                                                                                                                             | 流光背景与歌词高亮的视觉参考            | 参考 |
 | [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg)                                                                                                                                                                                                           | MP4 重排思路                            | 参考 |
 | [pdone/lx-music-source](https://github.com/pdone/lx-music-source)                                                                                                                                                                                           | 洛雪音源解析接口                        | 参考 |
+| [lyswhut/lx-music-mobile](https://github.com/lyswhut/lx-music-mobile)                                                                                                                                                                                       | 自定义音源脚本协议                       | 参考 |
+| [jiajia2222/Moumusic](https://github.com/jiajia2222/Moumusic)                                                                                                                                                                                               | 自定义音源导入与 JavaScriptCore 承载      | 参考 |
 
 Coda 以 [AGPL-3.0-or-later](LICENSE) 发布；部分改编文件保留原许可证，并在文件头以 `SPDX-License-Identifier` 标明。

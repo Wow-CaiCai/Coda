@@ -1,28 +1,28 @@
 import Foundation
 
-/// Where a gray track's replacement audio can come from: a NetEase mirror,
-/// third-party parsing services, or one of the app's own platforms
-/// other than the track's own.
+/// Where a gray track's replacement audio can come from: the user's imported
+/// custom sources, or one of the app's own platforms other than the track's own.
 enum AudioSourceID: String, CaseIterable, Hashable, Sendable {
-    case mirror
-    case parser
+    case custom
     case netease
     case qq
     case kugou
     case qishui
 
-    init(platform: MusicProvider) {
+    /// Bodian has no unblock source of its own.
+    init?(platform: MusicProvider) {
         switch platform {
         case .netease: self = .netease
         case .qq: self = .qq
         case .kugou: self = .kugou
         case .qishui: self = .qishui
+        case .bodian: return nil
         }
     }
 
     var platform: MusicProvider? {
         switch self {
-        case .mirror, .parser: return nil
+        case .custom: return nil
         case .netease: return .netease
         case .qq: return .qq
         case .kugou: return .kugou
@@ -32,13 +32,13 @@ enum AudioSourceID: String, CaseIterable, Hashable, Sendable {
 
     var displayName: String {
         switch self {
-        case .mirror, .parser: return "备用音源"
+        case .custom: return "自定义音源"
         default: return platform?.name ?? rawValue
         }
     }
 
-    /// Mirrors and parsing services: no account, tried before the platforms.
-    var isMirror: Bool { platform == nil }
+    /// Imported sources: no account, tried before the platforms.
+    var isImported: Bool { platform == nil }
 }
 
 /// A playable stream and the tier it actually serves, when known.
@@ -72,6 +72,12 @@ struct UnblockQuery: Sendable, Hashable {
     let durationMS: Int
     /// The NetEase song ID when the track itself comes from NetEase.
     let neteaseID: Int?
+    /// The track's own IDs on QQ Music or KuGou, for sources that take them directly.
+    var platformSongID: Int? = nil
+    var qqMid: String? = nil
+    var qqMediaMid: String? = nil
+    var kugouHash: String? = nil
+    var kugouAlbumAudioID: String? = nil
 
     init(track: Track) {
         let platform = track.platformSong.map { MusicProvider(rawValue: $0.source.rawValue) ?? .netease } ?? .netease
@@ -81,6 +87,13 @@ struct UnblockQuery: Sendable, Hashable {
         album = track.album.name
         durationMS = track.durationMS
         neteaseID = platform == .netease && track.id > 0 ? track.id : nil
+        if let song = track.platformSong {
+            platformSongID = song.id
+            qqMid = song.qqMid
+            qqMediaMid = song.qqMediaMid
+            kugouHash = song.kugouHash
+            kugouAlbumAudioID = song.kugouAlbumAudioId
+        }
     }
 
     init(origin: MusicProvider, title: String, artists: [String], album: String, durationMS: Int, neteaseID: Int? = nil) {

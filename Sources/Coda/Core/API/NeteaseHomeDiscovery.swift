@@ -18,6 +18,8 @@ enum HomeDiscoverySlot: String, CaseIterable {
     case playlists, trending, newSongs, regional, radios
     /// 酷狗推荐卡片：专属好歌、小众宝藏。
     case forYou, hiddenGems
+    /// 波点发现页的模块（`service/home/index`）。
+    case personalPlaylists, encounterSongs, treasurePlaylists, similarSongs, themePlaylists
 
     var title: String {
         switch self {
@@ -28,15 +30,32 @@ enum HomeDiscoverySlot: String, CaseIterable {
         case .radios: return String(localized: "电台")
         case .forYou: return String(localized: "专属好歌")
         case .hiddenGems: return String(localized: "小众宝藏")
+        case .personalPlaylists: return String(localized: "个性化歌单")
+        case .encounterSongs: return String(localized: "偶遇心动单曲")
+        case .treasurePlaylists: return String(localized: "宝藏歌单库")
+        case .similarSongs: return String(localized: "心动收藏相似推荐")
+        case .themePlaylists: return String(localized: "你的主题歌单")
         }
     }
 
-    var showsSongRows: Bool { self != .playlists && self != .radios }
+    var showsSongRows: Bool { ![.playlists, .radios, .personalPlaylists, .treasurePlaylists, .themePlaylists].contains(self) }
+
+    /// The slot a Bodian home module fills, by module type.
+    static func bodian(moduleType: Int) -> Self? {
+        switch moduleType {
+        case 3: return .encounterSongs
+        case 4: return .personalPlaylists
+        case 5: return .treasurePlaylists
+        case 10: return .similarSongs
+        case 11: return .themePlaylists
+        default: return nil
+        }
+    }
 
     /// Slots the platform only fills for signed-in accounts.
     /// QQ radios are personal stations; Qishui radios and the rest are public.
     func requiresLogin(on provider: MusicProvider) -> Bool {
-        provider == .qq && self == .radios
+        (provider == .qq && self == .radios) || (provider == .bodian && self == .similarSongs)
     }
 }
 

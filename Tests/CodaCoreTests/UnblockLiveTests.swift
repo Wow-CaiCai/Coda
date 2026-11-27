@@ -13,8 +13,7 @@ struct UnblockLiveTests {
         let query = UnblockQuery(origin: .qishui, title: reference.name,
                                  artists: reference.artists.components(separatedBy: " / "),
                                  album: reference.album, durationMS: Int(reference.duration * 1000))
-        let sources: [any UnblockSource] = [MirrorUnblockSource(), ParserUnblockSource(), NeteaseUnblockSource(),
-                                            QQUnblockSource(), KugouUnblockSource()]
+        let sources: [any UnblockSource] = [NeteaseUnblockSource(), QQUnblockSource(), KugouUnblockSource()]
         var found = 0
         for source in sources {
             do {
@@ -26,8 +25,8 @@ struct UnblockLiveTests {
             }
         }
         #expect(found > 0)
-        let tiers = try await MirrorUnblockSource().qualityOptions(query)
-        print("live mirror tiers=\(tiers.map(\.title))")
+        let tiers = try await NeteaseUnblockSource().qualityOptions(query)
+        print("live netease tiers=\(tiers.map(\.title))")
         #expect(tiers.count > 1)
     }
 }

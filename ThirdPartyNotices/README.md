@@ -22,6 +22,8 @@
 | [sodahub-org/libresoda](https://github.com/sodahub-org/libresoda) | `5edd2ff` | AGPL-3.0-or-later | `QishuiPlayback.swift`、`QishuiAudio.swift` | [Qishui-API.md](Qishui-API.md)、[许可证全文](libresoda-AGPL-3.0.txt) |
 | [sodahub-org/sodam](https://github.com/sodahub-org/sodam) | `f43a22b`、`a378433` | 见上游 NOTICE | 汽水播放协议；`Features/Home/QishuiModeIcons` 图标 | [Qishui-API.md](Qishui-API.md) |
 | [guohuiyuan/music-lib](https://github.com/guohuiyuan/music-lib) | — | 见 libresoda NOTICE | libresoda 的原始 Rust 实现 | [Qishui-API.md](Qishui-API.md) |
+| [Mintcolour/bodian-music-api](https://github.com/Mintcolour/bodian-music-api)（提取自 [chthollyphile/folia-major](https://github.com/chthollyphile/folia-major)） | 0.1.2 | AGPL-3.0 | `BodianMusicAPI.swift`（波点音乐签名、扫码登录、目录、播放与逐字歌词解码） | [Bodian.md](Bodian.md) |
+| [ldm0715/bowen_music](https://github.com/ldm0715/bowen_music) | `a6eb46d` | GPL-3.0 | `BodianCatalog.swift`（波点首页模块、排行榜、搜索、歌单编辑、收藏关注、评论与会员接口） | [Bodian.md](Bodian.md) |
 | [yakult-green-tea/qq-music-api](https://github.com/yakult-green-tea/qq-music-api) | `d27a9b5` | MIT | QQ 音乐登录态收藏传输与歌曲 / 专辑 / 歌单操作 | [QQMusicProtocolReferences.md](QQMusicProtocolReferences.md) |
 | [jixunmoe/qmweb-sign](https://github.com/jixunmoe/qmweb-sign) | `15305a3` | MIT | QQ 音乐网页请求签名与加密 | [QQMusicProtocolReferences.md](QQMusicProtocolReferences.md) |
 | [NeteaseCloudMusicApiEnhanced/api-enhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced) | `984cc02` | MIT | `NeteasePlaybackLog.swift`（NCBL 听歌记录上报） | [NeteasePlaybackLog.md](NeteasePlaybackLog.md) |
@@ -48,6 +50,8 @@
 | [Yyyangshenghao/simple-music](https://github.com/Yyyangshenghao/simple-music) | GPL-3.0 | 同上 | [QQMusicProtocolReferences.md](QQMusicProtocolReferences.md) |
 | [GitHub-ZC/wp_MusicApi](https://github.com/GitHub-ZC/wp_MusicApi) | — | QQ 音乐搜索、播放地址与歌词请求 | [QQMusicProtocolReferences.md](QQMusicProtocolReferences.md) |
 | [MeoProject/lx-music-api-server](https://github.com/MeoProject/lx-music-api-server) | — | QQ 音乐会员身份字段 | `docs/architecture/music-platforms.md` |
+| [lyswhut/lx-music-mobile](https://github.com/lyswhut/lx-music-mobile) | Apache-2.0 | 洛雪音乐自定义源脚本协议（`globalThis.lx` 的事件、请求与工具函数） | `Core/Player/Unblock/CustomSource/LXHostPreload.swift` |
+| [jiajia2222/Moumusic](https://github.com/jiajia2222/Moumusic) | LGPL-3.0 | 以 JavaScriptCore 承载自定义源脚本，以及导入与管理流程 | `Core/Player/Unblock/CustomSource/` |
 | [chongya369/qqmusic-api-py](https://github.com/chongya369/qqmusic-api-py) | — | QQ 音乐 identity 返回结构 | `docs/architecture/music-platforms.md` |
 | [XxHuberrr/Mineradio-paused](https://github.com/XxHuberrr/Mineradio-paused) | GPL-3.0 | 汽水 Passport 会话与二次验证流程 | [Qishui-API.md](Qishui-API.md) |
 | [zihe114514/qishui-reverse-report](https://github.com/zihe114514/qishui-reverse-report) | — | 汽水扫码登录协议 | `docs/development/qishui-integration.md` |
